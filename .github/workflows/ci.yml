@@ -48,12 +48,25 @@ jobs:
 
   # macOS: the local processing path, the generated Swift, the coverage matrix and both servers natively.
   macos:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # Runner Xcode releases lag swift.org, and the committed Package.resolved pins current dependencies,
+      # so install the same toolchain the maintainer builds with.
+      - name: Install Swift 6.4
+        run: |
+          curl -fsSLO https://download.swift.org/swiftly/darwin/swiftly.pkg
+          installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+          ~/.swiftly/bin/swiftly init --quiet-shell-followup --assume-yes --skip-install
+          . ~/.swiftly/env.sh
+          swiftly install --use --assume-yes 6.4
+          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
       - name: Native libraries
+        env: { HOMEBREW_NO_AUTO_UPDATE: "1", HOMEBREW_NO_INSTALL_CLEANUP: "1", HOMEBREW_NO_ENV_HINTS: "1" }
         run: brew install vips cairo pango pkg-config
+      - name: Versions
+        run: swift --version && pkg-config --modversion vips cairo
       - name: Recipes package tests
         run: swift test --package-path recipes
       - name: Generated Swift compiles and runs
