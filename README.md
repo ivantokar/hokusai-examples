@@ -7,7 +7,7 @@ Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift libr
 | Web playground served by a **Vapor** backend ([Hokusai Vapor](https://github.com/ivantokar/hokusai-vapor)) | [`vapor-server/`](vapor-server) | works |
 | The same playground served by a **Hummingbird** backend ([Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird)) | [`hummingbird-server/`](hummingbird-server) | works |
 | Shared recipes, operation catalog, Swift code generator, bounded upload store | [`recipes/`](recipes) | works |
-| Native macOS playground (SwiftUI, offline, no server) | `macos/` | planned, see [capability coverage](coverage/COVERAGE.md) |
+| Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) | works |
 | Inspect, Export/PDF and Runtime Lab views | | planned |
 
 Both backends serve **one** web UI and answer the **same** HTTP API, so you can compare how each integration behaves. The active backend is shown in the top bar.
@@ -32,6 +32,19 @@ cd hummingbird-server && swift run App    # http://127.0.0.1:8082
 ```
 
 Needs Swift 6.0+ and libvips 8.16+. Environment variables: `PORT`, `HOST`, `WEB_ROOT` (default `../web`), `FIXTURES_ROOT` (default `../fixtures`).
+
+### The macOS app
+
+A native SwiftUI app that runs Hokusai locally through the public API: offline, no Docker, no server.
+
+```sh
+brew install vips cairo pango pkg-config
+cd macos && swift run MacPlayground      # or open macos/Package.swift in Xcode and run the MacPlayground scheme
+```
+
+Open or drop an image, pick a sample or a recipe, add, reorder, disable and edit steps in the sidebar and inspector, compare with the original, and copy or export. It uses the same recipe model, catalog and code generator as the Web demo (`recipes/`), so a recipe means the same thing in both. Undo and redo, per-step reset and disable, and the original comparison never touch your file. Evaluation runs off the main actor, edits are debounced and superseded work is cancelled, and a result is published only if it belongs to the newest edit; if an edit fails, the last good image stays on screen with the error beside it. The reduced preview never reaches the Swift you copy or the export.
+
+It is a Swift package, not a signed `.app`: a redistributable app needs a decision on bundling and signing the native libraries, which is out of scope here (it links the Homebrew libvips).
 
 ### The minimal integration
 
@@ -75,6 +88,7 @@ Errors are `{ "error": { "code", "message" } }` with a status you can act on: 40
 
 ```sh
 swift test --package-path recipes      # catalog, compiler, code generator, upload store
+swift test --package-path macos        # the macOS app's model: undo/redo, revision gating, preview vs export
 scripts/check-snippets.sh              # the Swift the playground prints compiles and runs, for every preset
 scripts/coverage.py --check            # the coverage matrix is current
 scripts/smoke.sh http://127.0.0.1:8081 vapor   # HTTP smoke test against a running backend
@@ -97,6 +111,7 @@ Never commit an edited checkout.
 
 ## Known limitations
 
+- macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
 - Crop is a numeric rectangle; on-canvas crop, image layers and masks, split compare, and switching between two running backends are planned.
 - The playground previews at 1280 px; there is no downsampled-input fast path yet, because it is not equivalent for blur, trim, text and geometry steps.
 - Multi-architecture images are not claimed: build and test on the architecture you run.
