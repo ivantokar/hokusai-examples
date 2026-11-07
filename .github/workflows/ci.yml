@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Linux: the same images users run. Builds both backends against libvips built from source, starts each
+  # one and runs the identical HTTP smoke test, so the servers cannot drift apart.
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [vapor, hummingbird]
+        include:
+          - { backend: vapor, port: 8081 }
+          - { backend: hummingbird, port: 8082 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.backend }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: PRODUCT=${{ matrix.backend }}-server
+          load: true
+          tags: hokusai-examples-${{ matrix.backend }}
+          cache-from: type=gha,scope=${{ matrix.backend }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.backend }}
+      - name: Start and smoke-test
+        run: |
+          docker run -d --name app -p ${{ matrix.port }}:8080 hokusai-examples-${{ matrix.backend }}
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:${{ matrix.port }}/api/backend >/dev/null && break; sleep 1; done
+          scripts/smoke.sh http://127.0.0.1:${{ matrix.port }} ${{ matrix.backend }}
+      - name: Runtime capabilities of this image
+        run: curl -fsS http://127.0.0.1:${{ matrix.port }}/api/capabilities
+      - name: Logs
+        if: failure()
+        run: docker logs app
+
+  # macOS: the local processing path, the generated Swift, the coverage matrix and both servers natively.
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Runner Xcode releases lag swift.org, and the committed Package.resolved pins current dependencies,
+      # so install the same toolchain the maintainer builds with.
+      - name: Install Swift 6.4
+        run: |
+          curl -fsSLO https://download.swift.org/swiftly/darwin/swiftly.pkg
+          installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+          ~/.swiftly/bin/swiftly init --quiet-shell-followup --assume-yes --skip-install
+          . ~/.swiftly/env.sh
+          swiftly install --use --assume-yes 6.4
+          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
+      - name: Native libraries
+        env: { HOMEBREW_NO_AUTO_UPDATE: "1", HOMEBREW_NO_INSTALL_CLEANUP: "1", HOMEBREW_NO_ENV_HINTS: "1" }
+        run: brew install vips cairo pango pkg-config
+      - name: Versions
+        run: swift --version && pkg-config --modversion vips cairo
+      - name: Recipes package tests
+        run: swift test --package-path recipes
+      - name: Generated Swift compiles and runs
+        run: scripts/check-snippets.sh
+      - name: Coverage matrix is current
+        run: scripts/coverage.py --check
+      - name: Servers
+        run: |
+          for dir in vapor-server hummingbird-server; do swift build --package-path $dir; done
+          (cd vapor-server && PORT=8081 .build/debug/App >/tmp/vapor.log 2>&1 &)
+          (cd hummingbird-server && PORT=8082 .build/debug/App >/tmp/hb.log 2>&1 &)
+          for p in 8081 8082; do for i in $(seq 1 30); do curl -fsS http://127.0.0.1:$p/api/backend >/dev/null && break; sleep 1; done; done
+          scripts/smoke.sh http://127.0.0.1:8081 vapor
+          scripts/smoke.sh http://127.0.0.1:8082 hummingbird

@@ -1,0 +1,383 @@
+// One UI for every backend. The server owns image processing; this file only edits a recipe,
+// asks the server to render it, and shows the result. No framework, no build step.
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...children) => {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const c of children) node.append(c);
+  return node;
+};
+
+const PREVIEW_EDGE = 1280;
+const DEBOUNCE_MS = 160;
+
+const state = {
+  catalog: null, backend: null,
+  upload: null,            // { uploadId, width, height, orientedWidth, orientedHeight, bytes, format, name }
+  originalBlob: null, originalUrl: null,
+  recipe: { version: 1, name: null, steps: [], output: { format: "webp", options: {} } },
+  selected: null,
+  revision: 0,             // bumps on every recipe edit; only the newest revision may update the UI
+  history: [], future: [],
+  full: false,             // render the result at its real size instead of fitting the preview
+  view: "result", lastGood: null, resultUrl: null,
+  target: "core", tab: "swift", codeText: "", facts: {},
+};
+
+const ops = () => new Map(state.catalog.operations.map((o) => [o.id, o]));
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+
+// ---------- status ----------
+function setStatus(text, kind = "") {
+  const s = $("status");
+  s.className = "status" + (kind ? " " + kind : "");
+  s.replaceChildren(...(kind === "error" ? [el("span", { className: "tag", textContent: "Error" }), text] : [text]));
+}
+
+// ---------- backend ----------
+async function connect() {
+  try {
+    const [backend, catalog] = await Promise.all([fetch("/api/backend").then((r) => r.json()), fetch("/api/catalog").then((r) => r.json())]);
+    state.backend = backend; state.catalog = catalog;
+    document.querySelector("#backend .dot").dataset.state = "ok";
+    $("backend-text").textContent = `${backend.backend} · Hokusai ${backend.hokusai}`;
+    document.title = `Hokusai examples · ${backend.backend}`;
+  } catch {
+    document.querySelector("#backend .dot").dataset.state = "down";
+    $("backend-text").textContent = "Backend not reachable";
+    setStatus("The server did not answer. Start it with docker compose up vapor (or hummingbird) and reload.", "error");
+    throw new Error("backend unreachable");
+  }
+}
+
+// ---------- input ----------
+async function openBlob(blob, name) {
+  setStatus("Uploading…");
+  try {
+    const res = await fetch("/api/uploads", { method: "POST", body: blob });
+    if (!res.ok) throw await apiError(res);
+    state.upload = { ...(await res.json()), name };
+    state.originalBlob = blob;
+    if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
+    state.originalUrl = URL.createObjectURL(blob);
+    $("empty-state").hidden = true;
+    for (const id of ["export", "accurate"]) $(id).disabled = false;
+    $("reset").disabled = false;
+    setStatus(`${name}: ${state.upload.orientedWidth} × ${state.upload.orientedHeight}, ${fmtBytes(state.upload.bytes)}`);
+    changed(false);
+  } catch (e) {
+    setStatus(e.message || "Could not open that image.", "error");
+  }
+}
+
+async function apiError(res) {
+  let message = `The server answered ${res.status}.`, code = "";
+  try { const b = await res.json(); message = b.error.message; code = b.error.code; } catch { /* keep default */ }
+  return Object.assign(new Error(message), { code, status: res.status });
+}
+
+async function openSample(name) {
+  const blob = await fetch(`/samples/${name}`).then((r) => r.blob());
+  await openBlob(blob, name);
+}
+
+// ---------- recipe editing (undo / redo) ----------
+function edit(mutator) {
+  state.history.push(clone(state.recipe)); if (state.history.length > 100) state.history.shift();
+  state.future = [];
+  mutator(state.recipe);
+  changed(true);
+}
+function undo() { if (!state.history.length) return; state.future.push(clone(state.recipe)); state.recipe = state.history.pop(); fixSelection(); changed(true); }
+function redo() { if (!state.future.length) return; state.history.push(clone(state.recipe)); state.recipe = state.future.pop(); fixSelection(); changed(true); }
+function fixSelection() { if (!state.recipe.steps.some((s) => s.id === state.selected)) state.selected = null; }
+
+function changed(rerenderPanels) {
+  state.revision++;
+  $("undo").disabled = !state.history.length; $("redo").disabled = !state.future.length;
+  if (rerenderPanels) { drawSteps(); drawSettings(); drawOutput(); }
+  else { drawSteps(); drawOutput(); }
+  scheduleRender(); scheduleCode();
+}
+
+// ---------- pipeline list ----------
+function drawSteps() {
+  const list = $("steps"); const o = ops();
+  $("steps-empty").hidden = state.recipe.steps.length > 0;
+  list.replaceChildren(...state.recipe.steps.map((step, i) => {
+    const spec = o.get(step.op);
+    const li = el("li", { className: "step" + (step.enabled ? "" : " off"), draggable: true });
+    li.dataset.id = step.id;
+    if (step.id === state.selected) li.setAttribute("aria-current", "true");
+    const name = el("button", { className: "name", type: "button", textContent: spec.title });
+    name.setAttribute("aria-label", `Step ${i + 1}: ${spec.title}${step.enabled ? "" : " (disabled)"}`);
+    name.onclick = () => select(step.id);
+    name.onkeydown = (e) => {
+      if (e.altKey && e.key === "ArrowUp") { e.preventDefault(); move(step.id, -1); }
+      else if (e.altKey && e.key === "ArrowDown") { e.preventDefault(); move(step.id, +1); }
+      else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(step.id); }
+    };
+    const btn = (label, title, fn, disabled = false) => { const b = el("button", { type: "button", className: "mini", textContent: label, title, disabled }); b.setAttribute("aria-label", `${title}: ${spec.title}`); b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
+    li.append(el("span", { className: "num", textContent: String(i + 1) }), name,
+      btn(step.enabled ? "●" : "○", step.enabled ? "Disable" : "Enable", () => edit((r) => { const s = r.steps.find((x) => x.id === step.id); s.enabled = !s.enabled; })),
+      btn("↑", "Move up", () => move(step.id, -1), i === 0), btn("↓", "Move down", () => move(step.id, +1), i === state.recipe.steps.length - 1),
+      btn("⧉", "Duplicate", () => duplicate(step.id)), btn("✕", "Remove", () => remove(step.id)));
+    li.ondragstart = (e) => { e.dataTransfer.setData("text/plain", step.id); e.dataTransfer.effectAllowed = "move"; };
+    li.ondragover = (e) => { e.preventDefault(); li.classList.add("over"); };
+    li.ondragleave = () => li.classList.remove("over");
+    li.ondrop = (e) => { e.preventDefault(); li.classList.remove("over"); const from = e.dataTransfer.getData("text/plain"); if (from && from !== step.id) moveTo(from, i); };
+    return li;
+  }));
+}
+function select(id) { state.selected = id; drawSteps(); drawSettings(); }
+function move(id, delta) { const i = state.recipe.steps.findIndex((s) => s.id === id); const j = i + delta; if (j < 0 || j >= state.recipe.steps.length) return; moveTo(id, j); }
+function moveTo(id, j) { edit((r) => { const i = r.steps.findIndex((s) => s.id === id); const [s] = r.steps.splice(i, 1); r.steps.splice(j, 0, s); }); focusStep(id); }
+function duplicate(id) { const copy = uid(); edit((r) => { const i = r.steps.findIndex((s) => s.id === id); r.steps.splice(i + 1, 0, { ...clone(r.steps[i]), id: copy }); }); state.selected = copy; drawSteps(); drawSettings(); }
+function remove(id) { edit((r) => { r.steps = r.steps.filter((s) => s.id !== id); }); fixSelection(); drawSteps(); drawSettings(); }
+function focusStep(id) { document.querySelector(`.step[data-id="${CSS.escape(id)}"] .name`)?.focus(); }
+
+// ---------- add menu ----------
+function drawAddList(filter = "") {
+  const list = $("add-list"); const q = filter.trim().toLowerCase();
+  const groups = { geometry: "Geometry", effects: "Effects", color: "Colour", composition: "Composition" };
+  const items = [];
+  for (const [key, title] of Object.entries(groups)) {
+    const matches = state.catalog.operations.filter((o) => o.group === key && (!q || (o.title + " " + o.api + " " + o.summary).toLowerCase().includes(q)));
+    if (!matches.length) continue;
+    items.push(el("li", { className: "group", textContent: title }));
+    for (const spec of matches) {
+      const b = el("button", { type: "button" }, spec.title, el("small", { textContent: spec.summary }));
+      b.onclick = () => addStep(spec.id);
+      items.push(el("li", {}, b));
+    }
+  }
+  if (!items.length) items.push(el("li", { className: "group", textContent: "Nothing matches" }));
+  list.replaceChildren(...items);
+}
+function addStep(opId) {
+  const id = uid();
+  edit((r) => { r.steps.push({ id, op: opId, enabled: true, params: {} }); });
+  $("add-list").hidden = true; $("add-search").value = "";
+  select(id);
+}
+
+// ---------- settings ----------
+function drawSettings() {
+  const box = $("settings"); const step = state.recipe.steps.find((s) => s.id === state.selected);
+  if (!step) { $("settings-title").textContent = "Settings"; box.replaceChildren(el("p", { className: "empty", textContent: "Select a step to edit it." })); return; }
+  const spec = ops().get(step.op);
+  $("settings-title").textContent = spec.title;
+  const common = spec.params.filter((p) => !p.advanced), adv = spec.params.filter((p) => p.advanced);
+  const nodes = [el("p", { className: "api", textContent: spec.api })];
+  if (spec.previewNote) nodes.push(el("p", { className: "note", textContent: spec.previewNote }));
+  nodes.push(...common.map((p) => field(p, step.params, (v) => setParam(step.id, p, v))));
+  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => setParam(step.id, p, v)))));
+  if (spec.params.length) { const r = el("button", { type: "button", className: "btn small", textContent: "Reset to defaults" }); r.onclick = () => { edit((rr) => { rr.steps.find((s) => s.id === step.id).params = {}; }); drawSettings(); }; nodes.push(r); }
+  box.replaceChildren(...nodes);
+}
+
+let coalesce = null;
+function setParam(stepId, p, value) {
+  // Dragging a slider fires many events: they form one undo entry and are debounced for rendering.
+  if (coalesce !== stepId + p.name) { state.history.push(clone(state.recipe)); state.future = []; coalesce = stepId + p.name; }
+  clearTimeout(setParam.t); setParam.t = setTimeout(() => { coalesce = null; }, 600);
+  const step = state.recipe.steps.find((s) => s.id === stepId);
+  if (value === p.default) delete step.params[p.name]; else step.params[p.name] = value;
+  changed(false);
+}
+
+function field(p, params, onChange) {
+  const value = p.name in params ? params[p.name] : p.default;
+  const id = "f-" + uid();
+  const wrap = el("div", { className: "field" });
+  const label = el("label", { htmlFor: id }, p.label, p.unit ? el("span", { className: "unit", textContent: p.unit }) : "");
+  wrap.append(label);
+  if (p.kind === "number" || p.kind === "integer") {
+    const num = el("input", { type: "number", id, value, min: p.min ?? "", max: p.max ?? "", step: p.step ?? (p.kind === "integer" ? 1 : "any") });
+    const range = (p.min != null && p.max != null && p.max - p.min <= 100000) ? el("input", { type: "range", min: p.min, max: p.max, step: p.step ?? 1, value, tabIndex: -1 }) : null;
+    range?.setAttribute("aria-hidden", "true");
+    const commit = (raw) => { const n = Number(raw); if (Number.isFinite(n) && raw !== "") onChange(n); };
+    num.oninput = () => { if (range) range.value = num.value; commit(num.value); };
+    if (range) range.oninput = () => { num.value = range.value; commit(range.value); };
+    wrap.append(el("div", { className: "row" }, ...(range ? [range, num] : [num])));
+  } else if (p.kind === "boolean") {
+    const box = el("input", { type: "checkbox", id, checked: !!value }); box.onchange = () => onChange(box.checked);
+    wrap.append(box);
+  } else if (p.kind === "choice") {
+    const sel = el("select", { id }, ...p.options.map((o) => el("option", { value: o.value, textContent: o.label, selected: o.value === value })));
+    sel.onchange = () => onChange(sel.value); wrap.append(sel);
+  } else if (p.kind === "color") {
+    const hex = String(value); const rgb = hex.slice(0, 7); const a = hex.length === 9 ? parseInt(hex.slice(7), 16) : 255;
+    const picker = el("input", { type: "color", id, value: rgb });
+    const alpha = el("input", { type: "range", min: 0, max: 255, value: a }); alpha.setAttribute("aria-label", `${p.label} opacity`);
+    const emit = () => onChange(picker.value + (Number(alpha.value) === 255 ? "" : Number(alpha.value).toString(16).padStart(2, "0")));
+    picker.oninput = emit; alpha.oninput = emit;
+    wrap.append(el("div", { className: "row" }, picker, alpha));
+  } else {
+    const input = el("input", { type: "text", id, value, maxLength: 2000 }); input.oninput = () => onChange(input.value); wrap.append(input);
+  }
+  if (p.help) wrap.append(el("div", { className: "help", textContent: p.help }));
+  return wrap;
+}
+
+// ---------- output ----------
+function drawOutput() {
+  const out = state.recipe.output; const spec = state.catalog.outputs.find((o) => o.format === out.format);
+  const sel = el("select", { id: "fmt", "aria-label": "Format" }, ...state.catalog.outputs.map((o) => el("option", { value: o.format, textContent: o.title, selected: o.format === out.format })));
+  sel.onchange = () => edit((r) => { r.output = { format: sel.value, options: {} }; });
+  const fields = spec.params.map((p) => field(p, out.options, (v) => {
+    if (coalesce !== "out" + p.name) { state.history.push(clone(state.recipe)); state.future = []; coalesce = "out" + p.name; }
+    clearTimeout(setParam.t); setParam.t = setTimeout(() => { coalesce = null; }, 600);
+    if (v === p.default) delete state.recipe.output.options[p.name]; else state.recipe.output.options[p.name] = v;
+    changed(false);
+  }));
+  const keep = document.activeElement?.closest?.("#output");
+  if (keep && document.activeElement.tagName !== "SELECT") return;     // do not rebuild a control the user is dragging
+  $("output").replaceChildren(el("div", { className: "field" }, sel), ...fields);
+}
+
+// ---------- rendering ----------
+let renderTimer = null, inflight = null;
+function scheduleRender() {
+  clearTimeout(renderTimer);
+  if (!state.upload) return;
+  $("updating").hidden = false;
+  renderTimer = setTimeout(render, DEBOUNCE_MS);
+}
+
+async function render(retry = true) {
+  const rev = state.revision; inflight?.abort(); inflight = new AbortController();
+  const started = performance.now();
+  try {
+    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE };
+    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify(body), signal: inflight.signal });
+    if (!res.ok) throw await apiError(res);
+    const blob = await res.blob();
+    if (rev !== state.revision) return;                                   // a newer edit exists: drop this answer
+    const url = URL.createObjectURL(blob);
+    if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
+    state.resultUrl = url;
+    const h = (n) => res.headers.get(n);
+    state.lastGood = { width: +h("x-hokusai-width"), height: +h("x-hokusai-height"), bytes: blob.size, mime: blob.type, server: parseFloat((h("server-timing") || "").split("dur=")[1]), request: performance.now() - started, backend: h("x-hokusai-backend"), full: state.full };
+    showImage(); $("updating").hidden = true;
+    const f = state.lastGood;
+    setStatus(`${f.full ? "Full size" : "Preview"} ${f.width} × ${f.height} · ${fmtBytes(f.bytes)}${f.full ? "" : " (preview, not the export size)"}`);
+    drawFacts();
+  } catch (e) {
+    if (e.name === "AbortError" || rev !== state.revision) return;
+    if (e.code === "expiredUpload" && retry && state.originalBlob) {      // re-bind the original, then try once more
+      try { const r = await fetch("/api/uploads", { method: "POST", body: state.originalBlob }); state.upload = { ...state.upload, ...(await r.json()) }; return render(false); } catch { /* fall through */ }
+    }
+    $("updating").hidden = true;
+    setStatus(`${e.message}${state.lastGood ? " The image shown is the last good result, not this edit." : ""}`, "error");
+  }
+}
+// What goes to the server: every step as written, disabled ones included so the order survives round trips.
+function recipeForServer() { return clone(state.recipe); }
+
+function showImage() {
+  const img = $("image");
+  const src = state.view === "original" ? state.originalUrl : state.resultUrl;
+  if (!src) { img.hidden = true; return; }
+  img.src = src; img.hidden = false;
+  img.alt = state.view === "original" ? "Original image" : "Result of the current pipeline";
+  if (state.view === "result" && state.lastGood && state.zoom100) { img.style.width = state.lastGood.width + "px"; } else img.style.width = "";
+}
+
+// ---------- code ----------
+let codeTimer = null, codeRev = 0;
+function scheduleCode() { clearTimeout(codeTimer); codeTimer = setTimeout(loadCode, 200); }
+async function loadCode() {
+  const rev = ++codeRev;
+  try {
+    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target }) });
+    if (!res.ok) throw await apiError(res);
+    const { code } = await res.json(); if (rev !== codeRev) return;
+    state.codeText = code; drawCode();
+  } catch (e) { if (rev === codeRev) { state.codeText = `// ${e.message}`; drawCode(); } }
+}
+function curlText() {
+  const origin = location.origin;
+  return `# 1. Upload the original once; the server keeps it for a few minutes and returns an id.\ncurl -s --data-binary @input.jpg ${origin}/api/uploads\n\n# 2. Render the recipe against that id (the output below is exactly what Export downloads).\ncurl -s -X POST ${origin}/api/render \\\n  -d '${JSON.stringify({ uploadId: "<id from step 1>", recipe: state.recipe }).replaceAll("'", "'\\''")}' \\\n  -o result.${state.catalog.outputs.find((o) => o.format === state.recipe.output.format).fileExtension}\n\n# The minimal integration, without the demo API:\ncurl --data-binary @input.jpg '${origin}/api/minimal/resize?width=800' -o small.webp\n`;
+}
+function drawCode() {
+  const showCode = state.tab === "swift" || state.tab === "curl";
+  $("code").hidden = !showCode; $("facts").hidden = showCode; $("targets").hidden = state.tab !== "swift"; $("copy").hidden = !showCode;
+  $("code").textContent = state.tab === "curl" ? curlText() : state.codeText;
+}
+function drawFacts() {
+  const f = state.lastGood, u = state.upload; if (!f || !u) return;
+  const rows = [
+    ["Backend", `${state.backend.backend} (Hokusai ${state.backend.hokusai})`],
+    ["Source", `${u.width} × ${u.height} stored · ${u.orientedWidth} × ${u.orientedHeight} upright · ${u.format ?? "?"} · ${fmtBytes(u.bytes)}`],
+    [f.full ? "Result (full size)" : "Preview", `${f.width} × ${f.height} · ${fmtBytes(f.bytes)}`],
+    ["Server work", isNaN(f.server) ? "n/a" : `${f.server.toFixed(0)} ms (evaluate + encode)`],
+    ["Request total", `${f.request.toFixed(0)} ms (includes network and queueing)`],
+    ["Output", `${f.mime} · ${f.full ? "this is the export size" : "Press Full size or Export for the real size and bytes"}`],
+  ];
+  $("facts").replaceChildren(...rows.flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
+}
+
+// ---------- export ----------
+async function doExport() {
+  setStatus("Rendering the export from the original…");
+  try {
+    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe }) });
+    if (!res.ok) throw await apiError(res);
+    const blob = await res.blob(); const spec = state.catalog.outputs.find((o) => o.format === state.recipe.output.format);
+    const base = (state.upload.name || "image").replace(/\.[^.]+$/, "");
+    const a = el("a", { href: URL.createObjectURL(blob), download: `${base}-hokusai.${spec.fileExtension}` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    setStatus(`Exported ${res.headers.get("x-hokusai-width")} × ${res.headers.get("x-hokusai-height")} · ${fmtBytes(blob.size)} ${spec.title}`);
+  } catch (e) { setStatus(e.message, "error"); }
+}
+
+// ---------- helpers & wiring ----------
+function fmtBytes(n) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1048576).toFixed(2)} MiB`; }
+
+function loadPreset(id) {
+  const p = state.catalog.presets.find((x) => x.id === id); if (!p) return;
+  const apply = () => edit((r) => { const rec = clone(p.recipe); rec.steps = rec.steps.map((s) => ({ ...s, id: uid(), enabled: s.enabled ?? true, params: s.params ?? {} })); Object.assign(r, rec); });
+  const go = () => { apply(); state.selected = state.recipe.steps[0]?.id ?? null; drawSteps(); drawSettings(); };
+  if (!state.upload || state.upload.name !== p.sample && !state.upload.custom) openSample(p.sample).then(go); else go();
+}
+
+function wire() {
+  $("file").onchange = (e) => { const f = e.target.files[0]; if (f) openBlob(f, f.name).then(() => { state.upload && (state.upload.custom = true); }); e.target.value = ""; };
+  for (const s of state.catalog.samples) {
+    $("sample").append(el("option", { value: s.name, textContent: s.title }));
+    const b = el("button", { type: "button", className: "btn", textContent: s.title }); b.onclick = () => openSample(s.name); $("empty-samples").append(b);
+  }
+  $("sample").onchange = (e) => { if (e.target.value) openSample(e.target.value); e.target.value = ""; };
+  for (const p of state.catalog.presets) $("preset").append(el("option", { value: p.id, textContent: p.title }));
+  $("preset").onchange = (e) => { if (e.target.value) loadPreset(e.target.value); e.target.value = ""; };
+  $("nav-recipes").onclick = () => $("preset").focus();
+  $("undo").onclick = undo; $("redo").onclick = redo;
+  $("reset").onclick = () => edit((r) => { r.steps = []; r.output = { format: "webp", options: {} }; });
+  $("export").onclick = doExport;
+  $("accurate").onclick = () => { state.full = !state.full; $("accurate").textContent = state.full ? "Fit preview" : "Full size"; changed(false); };
+  const view = (v) => { state.view = v; $("show-result").classList.toggle("on", v === "result"); $("show-original").classList.toggle("on", v === "original"); $("show-result").setAttribute("aria-pressed", v === "result"); $("show-original").setAttribute("aria-pressed", v === "original"); showImage(); };
+  $("show-result").onclick = () => view("result"); $("show-original").onclick = () => view("original");
+  const zoom = (z) => { state.zoom100 = z; $("canvas").classList.toggle("actual", z); $("zoom-fit").classList.toggle("on", !z); $("zoom-100").classList.toggle("on", z); $("zoom-fit").setAttribute("aria-pressed", !z); $("zoom-100").setAttribute("aria-pressed", z); showImage(); };
+  $("zoom-fit").onclick = () => zoom(false); $("zoom-100").onclick = () => zoom(true);
+  const search = $("add-search");
+  search.onfocus = () => { drawAddList(search.value); $("add-list").hidden = false; };
+  search.oninput = () => { drawAddList(search.value); $("add-list").hidden = false; };
+  search.onkeydown = (e) => { if (e.key === "Escape") { $("add-list").hidden = true; } if (e.key === "ArrowDown") { $("add-list").querySelector("button")?.focus(); e.preventDefault(); } };
+  document.addEventListener("click", (e) => { if (!e.target.closest(".add")) $("add-list").hidden = true; });
+  for (const t of document.querySelectorAll(".drawer-tabs [role=tab]")) t.onclick = () => { state.tab = t.dataset.tab; for (const x of document.querySelectorAll(".drawer-tabs [role=tab]")) x.setAttribute("aria-selected", x === t); drawCode(); };
+  for (const target of state.catalog.targets) {
+    const b = el("button", { type: "button", textContent: { core: "Core", vapor: "Vapor", hummingbird: "Hummingbird" }[target], className: target === state.target ? "on" : "" });
+    b.onclick = () => { state.target = target; for (const x of $("targets").children) x.classList.toggle("on", x === b); loadCode(); };
+    $("targets").append(b);
+  }
+  $("copy").onclick = async () => { try { await navigator.clipboard.writeText($("code").textContent); setStatus("Copied."); } catch { setStatus("Copy is not available here; select the code instead.", "error"); } };
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  });
+  const canvas = $("canvas");
+  canvas.ondragover = (e) => { e.preventDefault(); canvas.classList.add("drop"); };
+  canvas.ondragleave = () => canvas.classList.remove("drop");
+  canvas.ondrop = (e) => { e.preventDefault(); canvas.classList.remove("drop"); const f = e.dataTransfer.files[0]; if (f) openBlob(f, f.name); };
+}
+
+connect().then(() => { wire(); drawOutput(); drawSteps(); drawSettings(); loadCode(); drawCode(); }).catch(() => {});

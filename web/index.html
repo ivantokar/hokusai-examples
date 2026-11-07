@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hokusai examples</title>
+  <meta name="description" content="Try Hokusai image processing in the browser: build a pipeline, see the result, copy the Swift.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b3a57'/%3E%3Cpath d='M4 21c4-8 8-8 12 0s8 8 12 0' fill='none' stroke='%23f1ead8' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark" aria-hidden="true"></span><strong>Hokusai</strong> <span class="muted">examples</span></div>
+    <nav aria-label="Demo sections" class="nav">
+      <button class="tab active" aria-current="page">Playground</button>
+      <button class="tab" id="nav-recipes" aria-haspopup="true">Recipes</button>
+      <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Inspect</button>
+      <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Export / PDF</button>
+      <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Runtime Lab</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="backend" id="backend" role="status" aria-live="polite"><span class="dot" data-state="connecting"></span><span id="backend-text">Connecting…</span></div>
+  </header>
+
+  <div class="toolbar" role="toolbar" aria-label="Image and view">
+    <label class="btn">Open image… <input type="file" id="file" accept="image/*" hidden></label>
+    <select id="sample" aria-label="Sample image"><option value="">Sample image…</option></select>
+    <select id="preset" aria-label="Recipe"><option value="">Recipe…</option></select>
+    <span class="sep"></span>
+    <button class="btn" id="undo" disabled>Undo</button>
+    <button class="btn" id="redo" disabled>Redo</button>
+    <button class="btn" id="reset" disabled>Reset</button>
+    <span class="sep"></span>
+    <div class="seg" role="group" aria-label="Compare">
+      <button id="show-result" class="on" aria-pressed="true">Result</button>
+      <button id="show-original" aria-pressed="false">Original</button>
+    </div>
+    <div class="seg" role="group" aria-label="Zoom">
+      <button id="zoom-fit" class="on" aria-pressed="true">Fit</button>
+      <button id="zoom-100" aria-pressed="false">100%</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" id="accurate" disabled title="Render the result at its real size">Full size</button>
+    <button class="btn primary" id="export" disabled>Export</button>
+  </div>
+
+  <main class="workspace">
+    <aside class="panel left" aria-label="Pipeline">
+      <h2>Pipeline</h2>
+      <ol id="steps" class="steps" aria-label="Ordered steps"></ol>
+      <p class="empty" id="steps-empty">Add an operation to start.</p>
+      <div class="add">
+        <label class="visually-hidden" for="add-search">Search operations</label>
+        <input id="add-search" type="search" placeholder="Add operation…" autocomplete="off">
+        <ul id="add-list" class="add-list" hidden></ul>
+      </div>
+      <h2>Output</h2>
+      <div id="output"></div>
+    </aside>
+
+    <section class="stage" aria-label="Preview">
+      <div class="canvas" id="canvas">
+        <div class="viewport" id="viewport">
+          <div class="empty-state" id="empty-state">
+            <h1>Try Hokusai in the browser</h1>
+            <p>Drop an image here, open one, or start from a sample. The server runs the same public Swift API you would call in your app.</p>
+            <div class="samples" id="empty-samples"></div>
+          </div>
+          <img id="image" alt="Result of the current pipeline" hidden>
+        </div>
+        <div class="badge" id="updating" hidden>Updating…</div>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <aside class="panel right" aria-label="Settings">
+      <h2 id="settings-title">Settings</h2>
+      <div id="settings"><p class="empty">Select a step to edit it.</p></div>
+    </aside>
+  </main>
+
+  <section class="drawer" aria-label="Code and facts">
+    <div class="drawer-tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="swift">Swift</button>
+      <button role="tab" aria-selected="false" data-tab="curl">HTTP</button>
+      <button role="tab" aria-selected="false" data-tab="facts">Facts</button>
+      <div class="spacer"></div>
+      <div class="seg" id="targets" role="group" aria-label="Swift target"></div>
+      <button class="btn small" id="copy">Copy</button>
+    </div>
+    <pre class="code" id="code" tabindex="0"></pre>
+    <dl class="facts" id="facts" hidden></dl>
+  </section>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
