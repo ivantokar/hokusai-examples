@@ -69,6 +69,10 @@ jobs:
         run: swift --version && pkg-config --modversion vips cairo
       - name: Recipes package tests
         run: swift test --package-path recipes
+      - name: macOS app model tests and build
+        run: |
+          swift test --package-path macos
+          swift build --package-path macos
       - name: Generated Swift compiles and runs
         run: scripts/check-snippets.sh
       - name: Coverage matrix is current
