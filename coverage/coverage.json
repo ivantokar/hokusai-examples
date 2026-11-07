@@ -1,0 +1,442 @@
+[
+ {
+  "area": "Sources",
+  "item": "Encoded data",
+  "api": "Hokusai(data:)",
+  "status": "implemented",
+  "where": "Web: upload, samples"
+ },
+ {
+  "area": "Sources",
+  "item": "File URLs",
+  "api": "Hokusai(url:)",
+  "status": "partial",
+  "where": "Generated Swift shows it with an input.jpg placeholder; macOS app will open files",
+  "note": "The Web demo never reads server paths."
+ },
+ {
+  "area": "Sources",
+  "item": "Streamed / spooled input",
+  "api": "Hokusai(spooling:)",
+  "status": "partial",
+  "where": "Minimal route in both servers uses it; Runtime Lab planned"
+ },
+ {
+  "area": "Sources",
+  "item": "Generated text as a source",
+  "api": "Hokusai.text(_:layout:style:)",
+  "status": "planned",
+  "where": "Composition view"
+ },
+ {
+  "area": "Sources",
+  "item": "Raw pixels",
+  "api": "Hokusai(raw:)",
+  "status": "planned",
+  "where": "Inspect lab"
+ },
+ {
+  "area": "Geometry",
+  "item": "Auto-orient",
+  "api": "autoOrient()",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "autoOrient"
+ },
+ {
+  "area": "Geometry",
+  "item": "Resize with fit, position, kernel",
+  "api": "resize(...)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "resize"
+ },
+ {
+  "area": "Geometry",
+  "item": "Rotate",
+  "api": "rotate(by:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "rotate"
+ },
+ {
+  "area": "Geometry",
+  "item": "Flip (vertical)",
+  "api": "flip(), flop()",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "flip"
+ },
+ {
+  "area": "Geometry",
+  "item": "Flop (horizontal)",
+  "api": "flop()",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "flop"
+ },
+ {
+  "area": "Geometry",
+  "item": "Crop (extract)",
+  "api": "extract(x:y:width:height:)",
+  "status": "partial",
+  "where": "Playground: numeric rectangle; on-canvas crop planned",
+  "op": "crop"
+ },
+ {
+  "area": "Geometry",
+  "item": "Smart crop",
+  "api": "smartCrop(width:height:strategy:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "smartCrop"
+ },
+ {
+  "area": "Geometry",
+  "item": "Extend (canvas)",
+  "api": "extend(...)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Geometry",
+  "item": "Affine",
+  "api": "affine(...)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Geometry",
+  "item": "Trim",
+  "api": "trim(...)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Effects",
+  "item": "Blur",
+  "api": "blur(sigma:precision:minAmplitude:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "blur"
+ },
+ {
+  "area": "Effects",
+  "item": "Sharpen",
+  "api": "sharpen(sigma:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "sharpen"
+ },
+ {
+  "area": "Effects",
+  "item": "Grayscale",
+  "api": "grayscale()",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "grayscale"
+ },
+ {
+  "area": "Effects",
+  "item": "Tint",
+  "api": "tint(_:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "tint"
+ },
+ {
+  "area": "Effects",
+  "item": "Normalize",
+  "api": "normalize(lower:upper:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "normalize"
+ },
+ {
+  "area": "Effects",
+  "item": "CLAHE",
+  "api": "clahe(width:height:maxSlope:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "clahe"
+ },
+ {
+  "area": "Effects",
+  "item": "Gamma",
+  "api": "gamma(_:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "gamma"
+ },
+ {
+  "area": "Effects",
+  "item": "Negate",
+  "api": "negate(alpha:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "negate"
+ },
+ {
+  "area": "Effects",
+  "item": "Median",
+  "api": "median(size:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "median"
+ },
+ {
+  "area": "Effects",
+  "item": "Threshold",
+  "api": "threshold(_:grayscale:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "threshold"
+ },
+ {
+  "area": "Effects",
+  "item": "Modulate",
+  "api": "modulate(brightness:saturation:hue:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "modulate"
+ },
+ {
+  "area": "Effects",
+  "item": "Linear",
+  "api": "linear(multiply:add:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Convolution kernels",
+  "api": "convolve(_:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Colour matrices",
+  "api": "recombine(_:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Dilate / erode",
+  "api": "dilate(radius:), erode(radius:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Edge detectors",
+  "api": "edges(_:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Channel extraction",
+  "api": "extractChannel(_:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Alpha from a mask",
+  "api": "joinAlpha(_:)",
+  "status": "planned",
+  "where": "Playground (needs a second image asset for masks)"
+ },
+ {
+  "area": "Colour and alpha",
+  "item": "Colour-space conversion",
+  "api": "convert(to:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Colour and alpha",
+  "item": "Ensure alpha",
+  "api": "ensureAlpha(opacity:)",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Colour and alpha",
+  "item": "Remove alpha",
+  "api": "removeAlpha()",
+  "status": "planned",
+  "where": "Playground"
+ },
+ {
+  "area": "Colour and alpha",
+  "item": "Flatten",
+  "api": "flatten(background:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "flatten"
+ },
+ {
+  "area": "Composition and text",
+  "item": "Text overlay",
+  "api": "drawText(_:placement:layout:style:)",
+  "status": "partial",
+  "where": "Playground: content, size, font, colour, gravity, offsets; layout, stroke, shadow planned",
+  "op": "text"
+ },
+ {
+  "area": "Composition and text",
+  "item": "Image layers, blend, opacity, compositing space",
+  "api": "composite(_:space:)",
+  "status": "planned",
+  "where": "Playground (needs extra image assets)"
+ },
+ {
+  "area": "Encoders",
+  "item": "JPEG",
+  "api": "jpeg(quality:progressive:)",
+  "status": "partial",
+  "where": "Playground output panel; advanced typed options planned",
+  "output": "jpeg"
+ },
+ {
+  "area": "Encoders",
+  "item": "PNG",
+  "api": "png(compressionLevel:interlaced:)",
+  "status": "partial",
+  "where": "Playground output panel; advanced typed options planned",
+  "output": "png"
+ },
+ {
+  "area": "Encoders",
+  "item": "WebP",
+  "api": "webp(quality:effort:lossless:)",
+  "status": "partial",
+  "where": "Playground output panel; advanced typed options planned",
+  "output": "webp"
+ },
+ {
+  "area": "Encoders",
+  "item": "AVIF",
+  "api": "avif(quality:effort:lossless:)",
+  "status": "partial",
+  "where": "Playground output panel; advanced typed options planned",
+  "output": "avif"
+ },
+ {
+  "area": "Encoders",
+  "item": "TIFF",
+  "api": "tiff(compression:)",
+  "status": "partial",
+  "where": "Playground output panel; advanced typed options planned",
+  "output": "tiff"
+ },
+ {
+  "area": "Encoders",
+  "item": "GIF",
+  "api": "gif()",
+  "status": "implemented",
+  "where": "Playground output panel",
+  "output": "gif"
+ },
+ {
+  "area": "Encoders",
+  "item": "HEIF",
+  "api": "heif(...)",
+  "status": "planned",
+  "where": "Export / PDF view (needs a libvips with HEIF encoding; reported by /api/capabilities)"
+ },
+ {
+  "area": "Encoders",
+  "item": "Raster PDF",
+  "api": "pdf(pageSize:margins:background:)",
+  "status": "planned",
+  "where": "Export / PDF view"
+ },
+ {
+  "area": "Metadata",
+  "item": "Source inspection",
+  "api": "metadata()",
+  "status": "partial",
+  "where": "Upload response shows dimensions, oriented size and format; full Inspect lab planned"
+ },
+ {
+  "area": "Metadata",
+  "item": "Output metadata retention",
+  "api": "metadata(_:)",
+  "status": "planned",
+  "where": "Export / PDF view, verified on the exported bytes"
+ },
+ {
+  "area": "Raw and pages",
+  "item": "Raw input and output",
+  "api": "Hokusai(raw:), raw(...)",
+  "status": "planned",
+  "where": "Inspect lab"
+ },
+ {
+  "area": "Raw and pages",
+  "item": "Page selection and counts",
+  "api": "InputOptions.page",
+  "status": "planned",
+  "where": "Inspect lab"
+ },
+ {
+  "area": "Vector PDF",
+  "item": "HokusaiPDF documents",
+  "api": "PDFDocument",
+  "status": "planned",
+  "where": "Export / PDF view"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "data()",
+  "api": "data()",
+  "status": "implemented",
+  "where": "Every render"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "write(to:)",
+  "api": "write(to:)",
+  "status": "partial",
+  "where": "Shown in the generated Swift; the demo returns bytes instead of writing server files"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "Chunk streaming",
+  "api": "writeChunks(...), response()",
+  "status": "implemented",
+  "where": "Minimal route in both servers streams with response()"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "Runtime capabilities",
+  "api": "Hokusai.capabilities()",
+  "status": "implemented",
+  "where": "GET /api/capabilities"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "Startup configuration",
+  "api": "Hokusai.configure(_:)",
+  "status": "implemented",
+  "where": "Both servers configure at startup; read-only display planned"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "Scheduler status",
+  "api": "Hokusai.runtimeStatus",
+  "status": "implemented",
+  "where": "GET /api/status"
+ },
+ {
+  "area": "Terminals and runtime",
+  "item": "Cancellation, limits, queue behaviour",
+  "api": "InputOptions.limits, RuntimeConfiguration",
+  "status": "planned",
+  "where": "Runtime Lab"
+ }
+]
