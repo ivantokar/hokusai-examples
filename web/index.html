@@ -84,7 +84,14 @@
         <h1>Inspect</h1>
         <p class="muted">Facts read back from the original upload and from the bytes the current recipe really exports. Change the output metadata settings on the left and watch the right column.</p>
       </div>
+      <div class="seg" id="inspect-tabs" role="group" aria-label="Inspect view">
+        <button data-itab="metadata" class="on" aria-pressed="true">Metadata</button>
+        <button data-itab="raw" aria-pressed="false">Raw pixels</button>
+        <button data-itab="pages" aria-pressed="false">Pages</button>
+      </div>
       <div id="inspect-body" class="inspect-grid"></div>
+      <div id="raw-body" hidden></div>
+      <div id="pages-body" hidden></div>
     </section>
     <section class="inspect" id="lab" aria-label="Runtime Lab" hidden></section>
     <section class="inspect" id="export-view" aria-label="Export and PDF" hidden></section>

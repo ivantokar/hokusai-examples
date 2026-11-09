@@ -32,7 +32,7 @@ public enum RecipeCompiler {
 
     /// Validates a recipe and applies it, in order, to `source` using ordinary public Hokusai calls.
     /// Nothing is read or decoded until the caller runs a terminal on `pipeline`.
-    public static func compile(_ recipe: Recipe, source: Hokusai, fitting maxEdge: Int? = nil) throws -> CompiledRecipe {
+    public static func compile(_ recipe: Recipe, source: Hokusai, fitting maxEdge: Int? = nil, encode: Bool = true) throws -> CompiledRecipe {
         try validate(recipe)
         var pipeline = source
         for step in recipe.steps where step.enabled {
@@ -41,6 +41,8 @@ public enum RecipeCompiler {
         }
         // A display-size copy of the *result*; the recipe itself is untouched, so it stays accurate.
         if let maxEdge { pipeline = try pipeline.resize(width: maxEdge, height: maxEdge, fit: .inside, withoutEnlargement: true) }
+        // Raw output has no encoder (an encoder and raw() are exclusive), so the caller asks for the pixels only.
+        guard encode else { return CompiledRecipe(pipeline: pipeline, mime: "application/octet-stream", fileExtension: "raw") }
         let out = outputs[recipe.output.format]!
         let outParams = try Params(operation: recipe.output.format, specs: out.params + metadataParams, values: recipe.output.options)
         pipeline = try out.apply(applyMetadata(pipeline, outParams), outParams)

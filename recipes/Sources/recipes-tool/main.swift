@@ -1,5 +1,6 @@
 import Foundation
 import HokusaiRecipes
+import HokusaiPDF
 
 // recipes-tool snippets <directory>
 //   Writes a small SwiftPM package with one executable per preset, each containing the exact code the
@@ -50,6 +51,20 @@ case "snippets":
     try package.write(to: root.appending(path: "Package.swift"), atomically: true, encoding: .utf8)
     try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]).write(to: root.appending(path: "manifest.json"))
     print("wrote \(targets.count) snippet targets to \(directory)")
+case "pages-pdf":
+    // fixtures/pages.pdf: three small pages, so the Inspect view has a real multipage input to page through.
+    guard let path = args.dropFirst().first else { FileHandle.standardError.write(Data("usage: recipes-tool pages-pdf <file>\n".utf8)); exit(2) }
+    let colours = ["#f1ead8", "#d7e6ea", "#f3d9c8"]
+    let pages = (1...3).map { n in
+        VectorPageSpec(size: "custom", width: 300, height: 200, items: [
+            VectorItem(type: "background", props: ["fill": .string(colours[n - 1])]),
+            VectorItem(type: "text", props: ["content": .string("Page \(n)"), "x": .number(24), "y": .number(60), "size": .number(48), "weight": .string("bold"), "color": .string("#1b3a57")]),
+            VectorItem(type: "text", props: ["content": .string("of 3 · selectable text"), "x": .number(24), "y": .number(130), "size": .number(14), "color": .string("#1c2733")]),
+        ])
+    }
+    let document = try VectorCompiler.compile(VectorDocumentSpec(title: "Pages fixture", pages: pages), assets: { _ in throw VectorError.noUpload })
+    try await document.data().data.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
 case "coverage":
     for op in Catalog.operations { print("operation \(op.id)") }
     for out in Catalog.outputs { print("output \(out.format)") }

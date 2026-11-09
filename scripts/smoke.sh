@@ -141,6 +141,35 @@ except urllib.error.HTTPError as e: assert e.code == 422, e.code
 PY
 ok "raster PDF (no selectable text), vector PDF (selectable text), page previews, encoder comparison"
 
+# Raw pixels and pages: layouts are read from real bytes, a wrong declaration is refused, pages are real pages.
+python3 - "$base" "$here/fixtures" "$id" <<'PY' || fail "raw and pages"
+import json, sys, urllib.error, urllib.request
+base, fx, upload = sys.argv[1], sys.argv[2], sys.argv[3]
+def post(path, data, raw=False):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=data if raw else json.dumps(data).encode()))
+def upload_file(name): return json.load(post("/api/uploads", open(f"{fx}/{name}", "rb").read(), raw=True))["uploadId"]
+recipe = {"version": 1, "steps": [], "output": {"format": "png"}}
+r = post("/api/raw/output", {"uploadId": upload, "recipe": recipe, "format": "rgb16", "maxEdge": 64})
+body = r.read(); h = r.headers
+assert (h["x-raw-channels"], h["x-raw-bit-depth"], h["x-raw-premultiplied"]) == ("3", "16", "false"), dict(h)
+assert int(h["x-raw-row-stride"]) == int(h["x-raw-width"]) * 6 and len(body) == int(h["x-raw-row-stride"]) * int(h["x-raw-height"])
+data = bytes((i * 7 + 3) % 256 for i in range(8 * 8 * 4))
+ok = post("/api/raw/input?width=8&height=8&format=rgba8", data, raw=True)
+assert ok.headers["x-raw-roundtrip"] == "exact" and ok.read()[1:4] == b"PNG"
+for query, body in (("width=8&height=8&format=rgba8", data[:-1]), ("width=8&height=8&format=rgb8", data), ("width=8&height=8&format=cmyk8", data)):
+    try: post("/api/raw/input?" + query, body, raw=True); raise SystemExit("a wrong raw declaration was accepted: " + query)
+    except urllib.error.HTTPError as e: assert e.code in (400, 422), (query, e.code)
+gif = upload_file("anim.gif")
+facts = json.load(post("/api/inspect", {"uploadId": gif}))["source"]
+assert facts["pages"] == 3 and facts["animated"] and facts["frameDelaysMs"] == [200, 200, 200] and facts["loopCount"] == 0, facts
+pdf = upload_file("pages.pdf")
+p0 = post("/api/render", {"uploadId": pdf, "page": 0, "recipe": recipe}).read()
+p2 = post("/api/render", {"uploadId": pdf, "page": 2, "recipe": recipe}).read()
+assert p0[1:4] == b"PNG" and p0 != p2, "page selection returned the same image"
+assert json.load(post("/api/inspect", {"uploadId": pdf, "page": 1}))["source"]["pages"] == 3
+PY
+ok "raw output layout, raw input round trip and refusal, page and frame selection"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

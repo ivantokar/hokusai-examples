@@ -16,6 +16,7 @@ public struct DemoAPI: Sendable {
     public static let samples: [(name: String, title: String)] = [
         ("scene.png", "Scene (landscape)"), ("phone.jpg", "Phone photo (EXIF rotated)"),
         ("emblem.png", "Emblem (transparent)"), ("metadata.jpg", "Metadata fixture (EXIF, ICC, XMP, IPTC)"),
+        ("pages.pdf", "Three-page PDF"), ("anim.gif", "Animated GIF (3 frames)"),
     ]
     public static let sampleNames: Set<String> = Set(samples.map(\.name)).union(["mask.png"])
 
@@ -178,7 +179,7 @@ public struct DemoAPI: Sendable {
 
     /// The same recipe through every encoder this runtime has, with default options, so sizes can be compared.
     /// Each one is encoded for real; the result is reduced to `maxEdge` first to keep the comparison bounded.
-    public func compare(uploadId: String, recipe: Recipe, maxEdge: Int = 2048) async throws -> Data {
+    public func compare(uploadId: String, recipe: Recipe, maxEdge: Int = 2048, page: Int? = nil) async throws -> Data {
         struct Row: Encodable { let format: String; let title: String; let ok: Bool; let bytes: Int?; let width: Int?; let height: Int?; let milliseconds: Double?; let error: String?; let mime: String? }
         struct Body: Encodable { let rows: [Row]; let scaledTo: Int }
         var rows: [Row] = []
@@ -186,7 +187,7 @@ public struct DemoAPI: Sendable {
             var r = recipe
             r.output = OutputSettings(format: out.format)
             do {
-                let result = try await render.render(RenderRequest(uploadId: uploadId, recipe: r, previewMaxEdge: maxEdge))
+                let result = try await render.render(RenderRequest(uploadId: uploadId, recipe: r, previewMaxEdge: maxEdge, page: page))
                 rows.append(Row(format: out.format, title: out.title, ok: true, bytes: result.data.count, width: result.width, height: result.height, milliseconds: result.serverMilliseconds, error: nil, mime: result.mime))
             } catch let error as HokusaiError {
                 rows.append(Row(format: out.format, title: out.title, ok: false, bytes: nil, width: nil, height: nil, milliseconds: nil, error: error.errorDescription ?? "failed", mime: nil))
@@ -195,13 +196,110 @@ public struct DemoAPI: Sendable {
         return try Self.encode(Body(rows: rows, scaledTo: maxEdge))
     }
 
+    // MARK: Raw pixels
+
+    public struct RawOutputRequest: Decodable, Sendable {
+        public var uploadId: String
+        public var recipe: Recipe
+        /// One of `RawPixelFormat`'s cases, for example `rgba8` or `gray16`.
+        public var format: String
+        public var premultiplied: Bool?
+        /// Colour that alpha is flattened onto when the format has none.
+        public var background: String?
+        /// The result is reduced to fit this many pixels first, so a pixel inspector stays small.
+        public var maxEdge: Int?
+        public var page: Int?
+    }
+
+    public struct RawResult: Sendable {
+        public let data: Data
+        public let width: Int, height: Int, channels: Int, bitDepth: Int, rowStride: Int
+        public let format: String
+        public let premultiplied: Bool
+        public func headers(backend: String) -> [String: String] {
+            ["Content-Type": "application/octet-stream", "Cache-Control": "no-store", "X-Hokusai-Backend": backend,
+             "X-Raw-Width": String(width), "X-Raw-Height": String(height), "X-Raw-Format": format, "X-Raw-Channels": String(channels),
+             "X-Raw-Bit-Depth": String(bitDepth), "X-Raw-Row-Stride": String(rowStride), "X-Raw-Premultiplied": premultiplied ? "true" : "false",
+             "X-Raw-Bytes": String(data.count),
+             "Access-Control-Expose-Headers": "X-Raw-Width, X-Raw-Height, X-Raw-Format, X-Raw-Channels, X-Raw-Bit-Depth, X-Raw-Row-Stride, X-Raw-Premultiplied, X-Raw-Bytes, X-Hokusai-Backend"]
+        }
+    }
+
+    static let rawFormats: [String: RawPixelFormat] = ["gray8": .gray8, "grayAlpha8": .grayAlpha8, "rgb8": .rgb8, "rgba8": .rgba8,
+                                                       "gray16": .gray16, "grayAlpha16": .grayAlpha16, "rgb16": .rgb16, "rgba16": .rgba16]
+    static func name(of format: RawPixelFormat) -> String { rawFormats.first { $0.value == format }?.key ?? String(describing: format) }
+
+    public func decodeRawOutputRequest(_ body: Data) throws -> RawOutputRequest { try JSONDecoder().decode(RawOutputRequest.self, from: body) }
+
+    /// The recipe's pixels, exactly as Hokusai hands them over: layout, bit depth, stride and alpha convention
+    /// are the library's own, read from the result, not assumed.
+    public func rawOutput(_ request: RawOutputRequest) async throws -> RawResult {
+        guard let format = Self.rawFormats[request.format] else { throw RecipeError.invalidParameter(operation: "raw", name: "format", reason: "'\(request.format)' is not a raw pixel format") }
+        if let edge = request.maxEdge, !(1...2048).contains(edge) { throw RenderError.invalidPreviewSize }
+        guard let bytes = await uploads.get(request.uploadId) else { throw RenderError.unknownUpload }
+        var options = InputOptions(); options.page = request.page
+        let compiled = try RecipeCompiler.compile(request.recipe, source: try Hokusai(data: bytes, options: options), fitting: request.maxEdge, encode: false)
+        let image = try await compiled.pipeline.raw(format, premultiplied: request.premultiplied ?? false, background: Hex.parse(request.background ?? "#ffffff") ?? .white)
+        return RawResult(data: image.data, width: image.width, height: image.height, channels: image.format.channels, bitDepth: image.format.bitDepth,
+                         rowStride: image.rowStride, format: Self.name(of: image.format), premultiplied: image.premultiplied)
+    }
+
+    public struct RawInput: Sendable {
+        public var width: Int, height: Int
+        public var format: String
+        public var rowStride: Int?
+        public var premultiplied: Bool
+        public init(width: Int, height: Int, format: String, rowStride: Int? = nil, premultiplied: Bool = false) {
+            self.width = width; self.height = height; self.format = format; self.rowStride = rowStride; self.premultiplied = premultiplied
+        }
+        /// Reads the declared layout from query parameters. Missing or malformed values are a client error.
+        public init(query: (String) -> String?) throws {
+            guard let w = query("width").flatMap(Int.init), let h = query("height").flatMap(Int.init), let f = query("format") else {
+                throw RecipeError.invalidParameter(operation: "raw", name: "width/height/format", reason: "all three are required")
+            }
+            self.init(width: w, height: h, format: f, rowStride: query("stride").flatMap(Int.init), premultiplied: query("premultiplied") == "true")
+        }
+    }
+
+    public struct RawInputResult: Sendable {
+        public let png: Data
+        public let width: Int, height: Int
+        /// `exact` when reading the same layout back gives the bytes that went in; otherwise where it first differs.
+        public let roundTrip: String
+        public func headers(backend: String) -> [String: String] {
+            ["Content-Type": "image/png", "Cache-Control": "no-store", "X-Hokusai-Backend": backend, "X-Raw-Width": String(width), "X-Raw-Height": String(height),
+             "X-Raw-Roundtrip": roundTrip, "Access-Control-Expose-Headers": "X-Raw-Width, X-Raw-Height, X-Raw-Roundtrip, X-Hokusai-Backend"]
+        }
+    }
+
+    /// Declares `data` as raw pixels with the given layout, shows them as a PNG, and reads them back in the same
+    /// layout to prove nothing was reinterpreted. A wrong declaration is rejected with the library's own message.
+    public func rawInput(_ input: RawInput, data: Data) async throws -> RawInputResult {
+        guard let format = Self.rawFormats[input.format] else { throw RecipeError.invalidParameter(operation: "raw", name: "format", reason: "'\(input.format)' is not a raw pixel format") }
+        let limits = InputLimits(maxBytes: 8 * 1024 * 1024, maxPixels: 4_000_000)
+        let image = try Hokusai(raw: data, width: input.width, height: input.height, format: format, rowStride: input.rowStride, premultiplied: input.premultiplied, limits: limits)
+        let png = try await image.png().data()
+        let back = try await image.raw(format, premultiplied: input.premultiplied)
+        // Padding bytes between rows are not pixels and do not round-trip, so compare the pixel bytes of each row.
+        let stride = input.rowStride ?? input.width * format.bytesPerPixel
+        let rowBytes = input.width * format.bytesPerPixel
+        var roundTrip = "exact"
+        outer: for y in 0..<input.height {
+            for x in 0..<rowBytes where data[data.startIndex + y * stride + x] != back.data[back.data.startIndex + y * back.rowStride + x] {
+                roundTrip = "differs at row \(y), byte \(x)"
+                break outer
+            }
+        }
+        return RawInputResult(png: png.data, width: png.info.width, height: png.info.height, roundTrip: roundTrip)
+    }
+
     // MARK: Inspect
 
     private struct Facts: Encodable {
         let format: String?; let width: Int; let height: Int; let orientedWidth: Int; let orientedHeight: Int
         let orientation: Int?; let channels: Int; let hasAlpha: Bool; let interpretation: String; let sampleFormat: String
         let bitsPerSample: Int?; let isPalette: Bool?; let density: String?; let pages: Int; let animated: Bool
-        let frames: Int?; let progressive: Bool?; let chroma: String?; let bytes: Int
+        let frames: Int?; let frameDelaysMs: [Int]?; let loopCount: Int?; let progressive: Bool?; let chroma: String?; let bytes: Int
         /// Sizes in bytes of the embedded blocks; 0 means the block is absent.
         let exifBytes: Int; let iccBytes: Int; let xmpBytes: Int; let iptcBytes: Int
     }
@@ -214,20 +312,22 @@ public struct DemoAPI: Sendable {
               channels: m.pixel.channels, hasAlpha: m.pixel.hasAlpha, interpretation: String(describing: m.pixel.interpretation),
               sampleFormat: String(describing: m.pixel.sampleFormat), bitsPerSample: m.pixel.bitsPerSample, isPalette: m.pixel.isPalette,
               density: m.density.map { "\(format($0.horizontal)) × \(format($0.vertical))\(m.densityUnit.map { " \(String(describing: $0))" } ?? "")" }, pages: m.pages.count, animated: m.isAnimated,
-              frames: m.animation?.frameDelays.count, progressive: m.isProgressive, chroma: m.chromaSubsampling, bytes: m.sourceByteSize ?? bytes,
+              frames: m.animation?.frameDelays.count,
+              frameDelaysMs: m.animation?.frameDelays.map { Int($0.components.seconds * 1000 + $0.components.attoseconds / 1_000_000_000_000_000) }, loopCount: m.animation?.loopCount, progressive: m.isProgressive, chroma: m.chromaSubsampling, bytes: m.sourceByteSize ?? bytes,
               exifBytes: m.exif?.count ?? 0, iccBytes: m.iccProfile?.count ?? 0, xmpBytes: m.xmp?.count ?? 0, iptcBytes: m.iptc?.count ?? 0)
     }
 
     /// Facts about the original upload and, when a recipe is given, about the bytes that recipe actually
     /// exports. The output is encoded and read back, so what is shown is what a file would contain and
     /// not what the settings promise.
-    public func inspect(uploadId: String, recipe: Recipe?) async throws -> Data {
+    public func inspect(uploadId: String, recipe: Recipe?, page: Int? = nil) async throws -> Data {
         guard let bytes = await uploads.get(uploadId) else { throw RenderError.unknownUpload }
         struct Body: Encodable { let source: Facts; let output: Facts?; let outputFormat: String? }
-        let source = Self.facts(try await Hokusai(data: bytes).metadata(), bytes: bytes.count)
+        var options = InputOptions(); options.page = page
+        let source = Self.facts(try await Hokusai(data: bytes, options: options).metadata(), bytes: bytes.count)
         var output: Facts?
         if let recipe {
-            let rendered = try await render.render(RenderRequest(uploadId: uploadId, recipe: recipe))
+            let rendered = try await render.render(RenderRequest(uploadId: uploadId, recipe: recipe, page: page))
             output = Self.facts(try await Hokusai(data: rendered.data).metadata(), bytes: rendered.data.count)
         }
         return try Self.encode(Body(source: source, output: output, outputFormat: recipe?.output.format))

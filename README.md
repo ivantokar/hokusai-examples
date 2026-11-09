@@ -8,7 +8,7 @@ Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift libr
 | The same playground served by a **Hummingbird** backend ([Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird)) | [`hummingbird-server/`](hummingbird-server) | works |
 | Shared recipes, operation catalog, Swift code generator, bounded upload store | [`recipes/`](recipes) | works |
 | Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) | works |
-| Inspect view (source facts and metadata verified on exported bytes) | web | works |
+| Inspect view: metadata verified on exported bytes, raw pixels in and out, pages and animation frames | web | works |
 | Runtime Lab (streaming, cancel, queue limits, failure examples) | web | works |
 | Export / PDF view (encoder comparison, raster PDF report, HokusaiPDF document builder) | web | works |
 
@@ -79,7 +79,9 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 | `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore?, viewable? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
 | `POST /api/pdf` `{ uploadId?, document, previewPage? }` | a vector PDF built with HokusaiPDF, or a PNG of one page decoded from it; `X-Hokusai-Pdf-Pages`, `X-Hokusai-Selectable-Text` |
 | `POST /api/compare` `{ uploadId, recipe }` | the recipe through every encoder this runtime has: size, dimensions, time, or the reason one is missing |
-| `POST /api/inspect` `{ uploadId, recipe? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
+| `POST /api/raw/output` `{ uploadId, recipe, format, maxEdge? }` | the recipe's raw pixels with `X-Raw-*` headers for the layout, bit depth, stride and alpha convention |
+| `POST /api/raw/input?width&height&format&stride?` (raw body) | declares the bytes as raw pixels, answers a PNG, reads them back in the same layout and reports `X-Raw-Roundtrip` |
+| `POST /api/inspect` `{ uploadId, recipe?, page? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
 | `POST /api/code` `{ recipe, target }` | `{ code }` |
 | `POST /api/minimal/resize?width=` (raw body) | the minimal integration |
 
@@ -120,6 +122,7 @@ Never commit an edited checkout.
 
 - macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
 - Image layers and masks, split compare, and switching between two running backends are planned. The macOS app has numeric crop only and no vector document builder yet (its output panel does offer the raster PDF and every encoder).
+- Raw pixels: 16-bit values are shown as little-endian, the server's native order here (checked against the 8-bit output); the library has no statistics or histogram API and the demo does not invent one. Animations can be inspected and read frame by frame but not edited or encoded as animations: that is not in the library.
 - Vector documents: pictures come from the bundled samples or your upload; there is no font upload, so text uses the system's sans, serif and monospace. The "selectable text" indicator in the Web UI is a heuristic (the PDF carries a text font with a character map); the unit tests confirm it with a real PDF reader on macOS.
 - Browsers do not display TIFF, HEIF or PDF as images, so the playground shows a labelled PNG decoded from the real bytes; Export always downloads the real file.
 - The playground previews at 1280 px; there is no downsampled-input fast path yet, because it is not equivalent for blur, trim, text and geometry steps.

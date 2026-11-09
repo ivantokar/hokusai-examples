@@ -2,6 +2,7 @@
 // asks the server to render it, and shows the result. No framework, no build step.
 import { initLab } from "./lab.js";
 import { initExport } from "./export.js";
+import { initRaw, initPages } from "./raw-pages.js";
 import { el, clone, uid, fmtBytes, apiError, field } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -19,7 +20,7 @@ const state = {
   history: [], future: [],
   full: false,             // render the result at its real size instead of fitting the preview
   view: "result", lastGood: null, resultUrl: null,
-  section: "playground", target: "core", tab: "swift", codeText: "", facts: {},
+  section: "playground", page: 0, itab: "metadata", target: "core", tab: "swift", codeText: "", facts: {},
 };
 
 const ops = () => new Map(state.catalog.operations.map((o) => [o.id, o]));
@@ -53,7 +54,7 @@ async function openBlob(blob, name) {
   try {
     const res = await fetch("/api/uploads", { method: "POST", body: blob });
     if (!res.ok) throw await apiError(res);
-    state.upload = { ...(await res.json()), name };
+    state.upload = { ...(await res.json()), name }; state.page = 0;
     state.originalBlob = blob;
     if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
     state.originalUrl = URL.createObjectURL(blob);
@@ -214,7 +215,7 @@ async function render(retry = true) {
   const rev = state.revision; inflight?.abort(); inflight = new AbortController();
   const started = performance.now();
   try {
-    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true };
+    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true, page: state.page || null };
     const res = await fetch("/api/render", { method: "POST", body: JSON.stringify(body), signal: inflight.signal });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob();
@@ -294,7 +295,7 @@ function drawFacts() {
 async function doExport() {
   setStatus("Rendering the export from the original…");
   try {
-    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe }) });
+    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); const spec = state.catalog.outputs.find((o) => o.format === state.recipe.output.format);
     const base = (state.upload.name || "image").replace(/\.[^.]+$/, "");
@@ -327,7 +328,8 @@ function wire() {
   $("export").onclick = doExport;
   $("accurate").onclick = () => { state.full = !state.full; $("accurate").textContent = state.full ? "Fit preview" : "Full size"; changed(false); };
   $("show-result").onclick = () => setView("result"); $("show-original").onclick = () => setView("original"); $("show-crop").onclick = () => setView("crop");
-  $("nav-play").onclick = () => setSection("playground"); $("nav-inspect").onclick = () => setSection("inspect"); $("nav-lab").onclick = () => setSection("lab"); $("nav-export").onclick = () => setSection("export");
+  $("nav-play").onclick = () => setSection("playground");
+  for (const b of document.querySelectorAll("#inspect-tabs button")) b.onclick = () => setInspectTab(b.dataset.itab); $("nav-inspect").onclick = () => setSection("inspect"); $("nav-lab").onclick = () => setSection("lab"); $("nav-export").onclick = () => setSection("export");
   $("image").addEventListener("load", drawCrop); window.addEventListener("resize", drawCrop);
   wireCrop();
   const zoom = (z) => { state.zoom100 = z; $("canvas").classList.toggle("actual", z); $("zoom-fit").classList.toggle("on", !z); $("zoom-100").classList.toggle("on", z); $("zoom-fit").setAttribute("aria-pressed", !z); $("zoom-100").setAttribute("aria-pressed", z); showImage(); };
@@ -356,7 +358,16 @@ function wire() {
 connect().then(() => { wire(); drawOutput(); drawSteps(); drawSettings(); loadCode(); drawCode(); }).catch(() => {});
 
 // ---------- sections ----------
-let lab = null, exportView = null;
+let lab = null, exportView = null, rawView = null, pagesView = null;
+function setInspectTab(name) {
+  state.itab = name;
+  for (const b of document.querySelectorAll("#inspect-tabs button")) { const on = b.dataset.itab === name; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
+  $("inspect-body").hidden = name !== "metadata"; $("raw-body").hidden = name !== "raw"; $("pages-body").hidden = name !== "pages";
+  const ctx = { state, recipe: () => state.recipe, setPage: (p) => { state.page = p; changed(false); } };
+  if (name === "metadata") loadInspect();
+  if (name === "raw") { rawView ??= initRaw($("raw-body"), ctx); rawView.show(); }
+  if (name === "pages") { pagesView ??= initPages($("pages-body"), ctx); pagesView.show(); }
+}
 function exportContext() {
   return {
     state,
@@ -372,7 +383,7 @@ function setSection(name) {
   if (name === "export") { exportView ??= initExport($("export-view"), exportContext()); exportView.show(); } else exportView?.hide();
   if (name === "lab") { lab ??= initLab($("lab")); lab.show(); } else lab?.hide();
   for (const [id, n] of [["nav-play", "playground"], ["nav-inspect", "inspect"], ["nav-lab", "lab"], ["nav-export", "export"]]) { $(id).classList.toggle("active", name === n); if (name === n) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current"); }
-  if (name === "inspect") { loadInspect(); }
+  if (name === "inspect") setInspectTab(state.itab);
 }
 
 function setView(v) {
@@ -384,12 +395,12 @@ function setView(v) {
 
 // ---------- inspect ----------
 let inspectTimer = null, inspectRev = 0;
-function scheduleInspect() { if (state.section !== "inspect" || !state.upload) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
+function scheduleInspect() { if (state.section !== "inspect" || state.itab !== "metadata" || !state.upload) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
 async function loadInspect() {
   if (!state.upload) { $("inspect-body").replaceChildren(el("p", { className: "empty", textContent: "Open an image to inspect it." })); return; }
   const rev = ++inspectRev;
   try {
-    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe }) });
+    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null }) });
     if (!res.ok) throw await apiError(res);
     const data = await res.json(); if (rev !== inspectRev) return;
     drawInspect(data);
@@ -453,7 +464,7 @@ async function ensureCropBase() {
   const rev = ++crop.rev; crop.ctrl?.abort(); crop.ctrl = new AbortController();
   try {
     const recipe = clone(state.recipe); recipe.output = { format: "webp", options: { quality: 90 } };
-    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id }) });
+    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id, page: state.page || null }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); if (rev !== crop.rev) return;
     if (crop.base?.url) URL.revokeObjectURL(crop.base.url);

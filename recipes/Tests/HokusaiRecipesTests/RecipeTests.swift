@@ -291,3 +291,59 @@ import PDFKit
         #expect(code.contains(".letter(.landscape)") && code.contains("margins: .all(18)") && code.contains("PDFDocumentMetadata(title: \"T\")"))
     }
 }
+
+@Suite struct RawAndPagesTests {
+    private func facts(_ data: Data) throws -> [String: Any] { try JSONSerialization.jsonObject(with: data) as! [String: Any] }
+
+    @Test func rawOutputReportsTheLayoutItReallyUses() async throws {
+        let api = DemoAPI(backend: "test")
+        let id = try await api.uploads.put(try fixture("scene.png"))
+        let recipe = Recipe(output: .init(format: "png"))
+        for (format, channels, bits) in [("gray8", 1, 8), ("rgba8", 4, 8), ("rgb16", 3, 16), ("grayAlpha16", 2, 16)] {
+            let raw = try await api.rawOutput(.init(uploadId: id, recipe: recipe, format: format, premultiplied: nil, background: nil, maxEdge: 64, page: nil))
+            #expect(raw.channels == channels && raw.bitDepth == bits && raw.format == format, "\(format)")
+            #expect(raw.rowStride == raw.width * channels * bits / 8)
+            #expect(raw.data.count == raw.rowStride * raw.height)
+            #expect(max(raw.width, raw.height) == 64)
+        }
+    }
+
+    @Test func rawInputRoundTripsEveryFormatIncludingPaddedRows() async throws {
+        let api = DemoAPI(backend: "test")
+        for format in ["gray8", "grayAlpha8", "rgb8", "rgba8", "gray16", "grayAlpha16", "rgb16", "rgba16"] {
+            let bpp = DemoAPI.rawFormats[format]!.bytesPerPixel
+            for padding in [0, 8] {
+                let stride = 8 * bpp + padding
+                let data = Data((0..<(stride * 8 - padding)).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 3) })
+                let result = try await api.rawInput(.init(width: 8, height: 8, format: format, rowStride: padding == 0 ? nil : stride), data: data)
+                #expect(result.roundTrip == "exact", "\(format) padding \(padding)")
+                #expect(result.png.starts(with: [0x89, 0x50, 0x4e, 0x47]))
+            }
+        }
+    }
+
+    @Test func rawInputRefusesAWrongDeclaration() async throws {
+        let api = DemoAPI(backend: "test")
+        await #expect(throws: HokusaiError.self) { try await api.rawInput(.init(width: 8, height: 8, format: "rgba8"), data: Data(count: 8 * 8 * 4 - 1)) }
+        await #expect(throws: HokusaiError.self) { try await api.rawInput(.init(width: 8, height: 8, format: "rgb8"), data: Data(count: 8 * 8 * 4)) }
+        await #expect(throws: RecipeError.self) { try await api.rawInput(.init(width: 8, height: 8, format: "cmyk8"), data: Data(count: 256)) }
+    }
+
+    @Test func pageSelectionPicksDifferentPagesAndReportsAnimation() async throws {
+        let api = DemoAPI(backend: "test")
+        let pdf = try await api.uploads.put(try fixture("pages.pdf"))
+        let recipe = Recipe(output: .init(format: "png"))
+        let source = try facts(try await api.inspect(uploadId: pdf, recipe: nil, page: 1))["source"] as! [String: Any]
+        #expect(source["pages"] as? Int == 3 && source["animated"] as? Bool == false)
+        let first = try await api.render.render(RenderRequest(uploadId: pdf, recipe: recipe, page: 0))
+        let third = try await api.render.render(RenderRequest(uploadId: pdf, recipe: recipe, page: 2))
+        #expect(first.data != third.data)                       // each page is its own image
+        #expect((first.width, first.height) == (third.width, third.height))
+
+        let gif = try await api.uploads.put(try fixture("anim.gif"))
+        let anim = try facts(try await api.inspect(uploadId: gif, recipe: nil))["source"] as! [String: Any]
+        #expect(anim["animated"] as? Bool == true && anim["frames"] as? Int == 3)
+        #expect(anim["frameDelaysMs"] as? [Int] == [200, 200, 200])
+        #expect(anim["loopCount"] as? Int == 0)
+    }
+}

@@ -2,8 +2,9 @@
 // Every number here is measured. Browser-side observations (an aborted fetch, chunks arriving) are
 // never presented as proof of what the server did: the server's own status is polled for that.
 
+import { el } from "./ui.js";
+
 const $ = (id) => document.getElementById(id);
-const el = (tag, props = {}, ...children) => { const n = Object.assign(document.createElement(tag), props); for (const c of children) n.append(c); return n; };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const ms = (n) => `${Math.round(n)} ms`;
 const kib = (n) => (n < 1048576 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1048576).toFixed(2)} MiB`);

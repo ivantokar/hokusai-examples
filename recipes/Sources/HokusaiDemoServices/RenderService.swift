@@ -15,13 +15,16 @@ public struct RenderRequest: Codable, Sendable {
     /// PDF) the response is a PNG proxy decoded from the real bytes, labelled as such. The real artifact is
     /// what a request without this flag returns.
     public var viewable: Bool?
+    /// Zero-based page of a multipage input (PDF pages, GIF frames), as `InputOptions.page` takes it.
+    public var page: Int?
 
-    public init(uploadId: String, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil, viewable: Bool? = nil) {
+    public init(uploadId: String, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil, viewable: Bool? = nil, page: Int? = nil) {
         self.uploadId = uploadId
         self.recipe = recipe
         self.previewMaxEdge = previewMaxEdge
         self.stopBefore = stopBefore
         self.viewable = viewable
+        self.page = page
     }
 }
 
@@ -80,7 +83,9 @@ public struct RenderService: Sendable {
         guard let bytes = await uploads.get(request.uploadId) else { throw RenderError.unknownUpload }
         let started = ContinuousClock.now
         // Decoding is lazy: invalid bytes are reported when the terminal runs, as a HokusaiError.
-        let source = try Hokusai(data: bytes)
+        var inputOptions = InputOptions()
+        inputOptions.page = request.page
+        let source = try Hokusai(data: bytes, options: inputOptions)
         var recipe = request.recipe
         if let stop = request.stopBefore {
             guard let index = recipe.steps.firstIndex(where: { $0.id == stop }) else { throw RenderError.unknownStep }

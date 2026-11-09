@@ -60,16 +60,29 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
         do { return json(try api.code(body(req))) } catch { return fail(error) }
     }
     routes.post("inspect") { req async -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe?; let page: Int? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: body(req))
-            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe, page: body.page))
         } catch { return fail(error) }
     }
     routes.post("render") { req async -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(body(req)))
             return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.data))
+        } catch { return fail(error) }
+    }
+    routes.post("raw", "output") { req async -> Response in
+        do {
+            let result = try await api.rawOutput(try api.decodeRawOutputRequest(body(req)))
+            return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.data))
+        } catch { return fail(error) }
+    }
+    routes.post("raw", "input") { req async -> Response in
+        do {
+            let input = try DemoAPI.RawInput(query: { req.query[String.self, at: $0] })
+            let result = try await api.rawInput(input, data: body(req))
+            return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.png))
         } catch { return fail(error) }
     }
     routes.post("pdf") { req async -> Response in
@@ -79,10 +92,10 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
         } catch { return fail(error) }
     }
     routes.post("compare") { req async -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe; let page: Int? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: body(req))
-            return json(try await api.compare(uploadId: body.uploadId, recipe: body.recipe))
+            return json(try await api.compare(uploadId: body.uploadId, recipe: body.recipe, page: body.page))
         } catch { return fail(error) }
     }
 }

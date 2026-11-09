@@ -1,6 +1,11 @@
 // Helpers shared by the playground, the labs and the export view.
 export const el = (tag, props = {}, ...children) => {
-  const node = Object.assign(document.createElement(tag), props);
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    // aria-* and data-* are attributes, not DOM properties: assigning them as properties would silently do nothing.
+    if (key.startsWith("aria-") || key.startsWith("data-")) node.setAttribute(key, value);
+    else node[key] = value;
+  }
   for (const c of children) node.append(c);
   return node;
 };

@@ -23,7 +23,7 @@ export function initExport(container, ctx) {
       if (!state.upload) { out.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
       run.disabled = true; out.replaceChildren(el("p", { className: "muted", textContent: "Encoding with every encoder…" }));
       try {
-        const res = await fetch("/api/compare", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe() }) });
+        const res = await fetch("/api/compare", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), page: state.page || null }) });
         if (!res.ok) throw await apiError(res);
         const { rows, scaledTo } = await res.json();
         const smallest = Math.min(...rows.filter((r) => r.ok).map((r) => r.bytes));

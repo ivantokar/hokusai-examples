@@ -83,16 +83,29 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
         do { return jsonResponse(try api.code(try await collect(request, limit: 1 << 20))) } catch { return failure(error) }
     }
     apiRoutes.post("inspect") { request, _ -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe?; let page: Int? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
-            return jsonResponse(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+            return jsonResponse(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe, page: body.page))
         } catch { return failure(error) }
     }
     apiRoutes.post("render") { request, _ -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(try await collect(request, limit: 1 << 20)))
             return Response(status: .ok, headers: fields(result.headers(backend: api.backend)), body: .init(byteBuffer: ByteBuffer(data: result.data)))
+        } catch { return failure(error) }
+    }
+    apiRoutes.post("raw/output") { request, _ -> Response in
+        do {
+            let result = try await api.rawOutput(try api.decodeRawOutputRequest(try await collect(request, limit: 1 << 20)))
+            return Response(status: .ok, headers: fields(result.headers(backend: api.backend)), body: .init(byteBuffer: ByteBuffer(data: result.data)))
+        } catch { return failure(error) }
+    }
+    apiRoutes.post("raw/input") { request, _ -> Response in
+        do {
+            let input = try DemoAPI.RawInput(query: { request.uri.queryParameters[Substring($0)].map(String.init) })
+            let result = try await api.rawInput(input, data: try await collect(request, limit: 9 * 1024 * 1024))
+            return Response(status: .ok, headers: fields(result.headers(backend: api.backend)), body: .init(byteBuffer: ByteBuffer(data: result.png)))
         } catch { return failure(error) }
     }
     apiRoutes.post("pdf") { request, _ -> Response in
@@ -102,10 +115,10 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
         } catch { return failure(error) }
     }
     apiRoutes.post("compare") { request, _ -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe; let page: Int? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
-            return jsonResponse(try await api.compare(uploadId: body.uploadId, recipe: body.recipe))
+            return jsonResponse(try await api.compare(uploadId: body.uploadId, recipe: body.recipe, page: body.page))
         } catch { return failure(error) }
     }
 
@@ -114,7 +127,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
         let name = try context.parameters.require("name")
         guard DemoAPI.sampleNames.contains(name),
               let data = FileManager.default.contents(atPath: "\(fixturesRoot)/\(name)") else { throw HTTPError(.notFound) }
-        let type = name.hasSuffix(".jpg") ? "image/jpeg" : "image/png"
+        let type = ["jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "pdf": "application/pdf"][String(name.split(separator: ".").last ?? "")] ?? "application/octet-stream"
         return Response(status: .ok, headers: [.contentType: type, .cacheControl: "public, max-age=3600"], body: .init(byteBuffer: ByteBuffer(data: data)))
     }
 

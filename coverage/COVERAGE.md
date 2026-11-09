@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-36 implemented, 5 partial, 18 planned, 59 in total.
+39 implemented, 5 partial, 15 planned, 59 in total.
 
 
 ## Sources
@@ -16,7 +16,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | File URLs | `Hokusai(url:)` | partial | Generated Swift shows it with an input.jpg placeholder; macOS app will open files. The Web demo never reads server paths. |
 | Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response. |
 | Generated text as a source | `Hokusai.text(_:layout:style:)` | planned | Composition view. |
-| Raw pixels | `Hokusai(raw:)` | planned | Inspect lab. |
+| Raw pixels | `Hokusai(raw:)` | implemented | Inspect > Raw pixels (raw input). |
 
 ## Geometry
 
@@ -101,8 +101,8 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Raw input and output | `Hokusai(raw:), raw(...)` | planned | Inspect lab. |
-| Page selection and counts | `InputOptions.page` | planned | Inspect lab. |
+| Raw input and output | `Hokusai(raw:), raw(...)` | implemented | Inspect > Raw pixels: output in every raw format with layout, stride, alpha convention, channel previews and pixel values from the real bytes; input from a generated grid with padded rows, premultiplied alpha, and refused wrong declarations. |
+| Page selection and counts | `InputOptions.page` | implemented | Inspect > Pages: page and frame selector (zero-based API index), thumbnails, page count versus animation, frame delays and loop count; the selection applies to preview, inspection and export. |
 
 ## Vector PDF
 
