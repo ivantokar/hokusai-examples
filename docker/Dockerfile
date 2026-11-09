@@ -2,6 +2,7 @@
 #
 # Hokusai 2 needs libvips 8.16 or newer, which Ubuntu 24.04 does not ship (it has 8.15), so the build
 # stage compiles libvips from a release tarball and the runtime stage carries only what it links.
+# libpoppler lets libvips read PDFs back, which the PDF previews use; without it the server says so instead of guessing.
 # libexif is required for the EXIF orientation: without it libvips silently ignores it and autoOrient does nothing.
 # The runtime reports what it can really do at GET /api/capabilities; do not infer codecs from this file.
 # Built and smoke-tested for linux/arm64 and linux/amd64 only where CI or a maintainer has run it; see README.
@@ -14,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential meson ninja-build pkg-config curl xz-utils ca-certificates \
       libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev libwebp-dev libtiff-dev \
       libheif-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev \
-      libexif-dev liblcms2-dev librsvg2-dev libimagequant-dev libspng-dev \
+      libexif-dev liblcms2-dev librsvg2-dev libimagequant-dev libspng-dev libpoppler-glib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.xz" | tar -xJ -C /tmp \
@@ -41,7 +42,7 @@ FROM ubuntu:noble
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libglib2.0-0t64 libexpat1 libjpeg-turbo8 libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 libtiff6 \
       libheif1 libheif-plugin-aomenc libheif-plugin-aomdec libheif-plugin-libde265 \
-      libexif12 liblcms2-2 librsvg2-2 libimagequant0 libspng0 libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libfontconfig1 \
+      libexif12 liblcms2-2 librsvg2-2 libimagequant0 libspng0 libpoppler-glib8t64 libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libfontconfig1 \
       libcurl4t64 libxml2 tzdata curl fonts-dejavu-core ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ARG PRODUCT

@@ -167,7 +167,8 @@ public struct DemoAPI: Sendable {
         var data = output.data, mime = "application/pdf"
         if let page = request.previewPage {
             guard (1...output.info.pageCount).contains(page) else { throw VectorError.tooManyPages }
-            data = try await Hokusai(data: output.data, options: InputOptions(page: page - 1)).png().data().data
+            do { data = try await Hokusai(data: output.data, options: InputOptions(page: page - 1)).png().data().data }
+            catch is HokusaiError { throw RenderError.previewUnavailable("application/pdf") }
             mime = "image/png"
         }
         let elapsed = ContinuousClock.now - started
@@ -261,6 +262,7 @@ public struct DemoAPI: Sendable {
             }
         case RenderError.unknownUpload: Failure(status: 404, code: "expiredUpload", message: "That upload has expired or never existed. Open the image again.")
         case let e as VectorError: Failure(status: 422, code: "document", message: e.description)
+        case RenderError.previewUnavailable(let mime): Failure(status: 501, code: "previewUnavailable", message: "This server's libvips cannot read \(mime) back, so it cannot draw a preview of it. The file itself can still be exported; the Docker image includes poppler for PDF previews.")
         case RenderError.unknownStep: Failure(status: 422, code: "recipe", message: "The step to stop before is not in the recipe.")
         case RenderError.invalidPreviewSize: Failure(status: 400, code: "previewSize", message: "previewMaxEdge must be between 16 and 4096.")
         case is DecodingError: Failure(status: 400, code: "badRequest", message: "The request body is not valid JSON for this endpoint.")

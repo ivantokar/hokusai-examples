@@ -63,6 +63,8 @@ public enum RenderError: Error {
     case unknownUpload
     case invalidPreviewSize
     case unknownStep
+    /// This libvips cannot read the format back, so there is nothing to build a preview from.
+    case previewUnavailable(String)
 }
 
 /// Runs recipes for any HTTP framework. The servers adapt requests to this and responses from it.
@@ -94,7 +96,13 @@ public struct RenderService: Sendable {
         if request.viewable == true, !RenderService.browserCanShow.contains(compiled.mime) {
             // Decode what was really produced (page 1 for a PDF) and show that, so the proxy is the artifact seen
             // through this runtime's decoder, not a separate rendering of the pipeline.
-            let proxy = try await Hokusai(data: output.data, options: InputOptions(page: 0)).png().data()
+            let proxy: Output
+            do { proxy = try await Hokusai(data: output.data, options: InputOptions(page: 0)).png().data() }
+            catch let error as HokusaiError {
+                if case .unsupported = error { throw RenderError.previewUnavailable(compiled.mime) }
+                if case .decode = error { throw RenderError.previewUnavailable(compiled.mime) }
+                throw error
+            }
             result = RenderResult(data: proxy.data, mime: "image/png", fileExtension: "png", width: proxy.info.width, height: proxy.info.height,
                                   serverMilliseconds: 0, proxyOf: compiled.mime, realBytes: output.data.count,
                                   pdfPages: result.pdfPages, pdfWidth: result.pdfWidth, pdfHeight: result.pdfHeight)
