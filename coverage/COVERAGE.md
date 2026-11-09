@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-39 implemented, 5 partial, 15 planned, 59 in total.
+51 implemented, 5 partial, 4 planned, 60 in total.
 
 
 ## Sources
@@ -29,9 +29,9 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Flop (horizontal) | `flop()` | implemented | Playground. |
 | Crop (extract) | `extract(x:y:width:height:)` | implemented | Playground: on-canvas rectangle with handles, keyboard and numeric entry, fixed aspect ratios; edited on the image entering the step. |
 | Smart crop | `smartCrop(width:height:strategy:)` | implemented | Playground. |
-| Extend (canvas) | `extend(...)` | planned | Playground. |
+| Extend (canvas) | `extend(...)` | implemented | Playground: padding per side, colour, edge copy, tiling or mirroring. |
 | Affine | `affine(...)` | planned | Playground. |
-| Trim | `trim(...)` | planned | Playground. |
+| Trim | `trim(...)` | implemented | Playground. |
 
 ## Effects
 
@@ -48,7 +48,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Median | `median(size:)` | implemented | Playground. |
 | Threshold | `threshold(_:grayscale:)` | implemented | Playground. |
 | Modulate | `modulate(brightness:saturation:hue:)` | implemented | Playground. |
-| Linear | `linear(multiply:add:)` | planned | Playground. |
+| Linear | `linear(multiply:add:)` | implemented | Playground. |
 
 ## Advanced pixels
 
@@ -56,18 +56,19 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | --- | --- | --- | --- |
 | Convolution kernels | `convolve(_:)` | planned | Playground. |
 | Colour matrices | `recombine(_:)` | planned | Playground. |
-| Dilate / erode | `dilate(radius:), erode(radius:)` | planned | Playground. |
-| Edge detectors | `edges(_:)` | planned | Playground. |
-| Channel extraction | `extractChannel(_:)` | planned | Playground. |
-| Alpha from a mask | `joinAlpha(_:)` | planned | Playground (needs a second image asset for masks). |
+| Dilate | `dilate(radius:)` | implemented | Playground. |
+| Erode | `erode(radius:)` | implemented | Playground. |
+| Edge detectors | `edges(_:)` | implemented | Playground: Sobel, Scharr, Prewitt, Canny. |
+| Channel extraction | `extractChannel(_:)` | implemented | Playground. |
+| Alpha from a mask | `withAlpha(from:)` | implemented | Playground: the image's own brightness or a picture (stretched to the size entering the step), with threshold, feather and invert; the generated Swift binds the pipeline it is taken from. |
 
 ## Colour and alpha
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Colour-space conversion | `convert(to:)` | planned | Playground. |
-| Ensure alpha | `ensureAlpha(opacity:)` | planned | Playground. |
-| Remove alpha | `removeAlpha()` | planned | Playground. |
+| Colour-space conversion | `convert(to:)` | implemented | Playground. |
+| Ensure alpha | `ensureAlpha(opacity:)` | implemented | Playground. |
+| Remove alpha | `removeAlpha()` | implemented | Playground. |
 | Flatten | `flatten(background:)` | implemented | Playground. |
 
 ## Composition and text
@@ -75,7 +76,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
 | Text overlay | `drawText(_:placement:layout:style:)` | partial | Playground: content, size, font, colour, gravity, offsets; layout, stroke, shadow planned. |
-| Image layers, blend, opacity, compositing space | `composite(_:space:)` | planned | Playground (needs extra image assets). |
+| Image layers, blend, opacity, compositing space | `composite(_:space:)` | implemented | Playground: a bundled picture or your second image, width, placement or tiling, twenty blend modes, opacity, sRGB or linear blending. |
 
 ## Encoders
 

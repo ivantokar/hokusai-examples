@@ -12,7 +12,7 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
     @Test func everyOperationRendersWithDefaults() async throws {
         let store = UploadStore()
         let id = try await store.put(try fixture("scene.png"))
-        let service = RenderService(uploads: store)
+        let service = RenderService(uploads: store, fixtures: fixtures)
         for spec in Catalog.operations {
             // Crop is checked separately; its default rectangle is larger than a tiny test image.
             let recipe = Recipe(steps: [Step(op: spec.id)], output: .init(format: "png"))
@@ -36,7 +36,7 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
 
     @Test func presetsAllRender() async throws {
         let store = UploadStore()
-        let service = RenderService(uploads: store)
+        let service = RenderService(uploads: store, fixtures: fixtures)
         for preset in Presets.all {
             let id = try await store.put(try fixture(preset.sample))
             let result = try await service.render(RenderRequest(uploadId: id, recipe: preset.recipe, previewMaxEdge: nil))
@@ -345,5 +345,127 @@ import PDFKit
         #expect(anim["animated"] as? Bool == true && anim["frames"] as? Int == 3)
         #expect(anim["frameDelaysMs"] as? [Int] == [200, 200, 200])
         #expect(anim["loopCount"] as? Int == 0)
+    }
+}
+
+@Suite struct LayerAndMaskTests {
+    private func alphaRange(_ png: Data) async throws -> (min: Int, max: Int, hasAlpha: Bool) {
+        let image = try Hokusai(data: png)
+        let meta = try await image.metadata()
+        guard meta.pixel.hasAlpha else { return (255, 255, false) }
+        let alpha = try await image.extractChannel(.alpha).raw(.gray8).data
+        return (Int(alpha.min() ?? 0), Int(alpha.max() ?? 0), true)
+    }
+
+    @Test func anImageLayerChangesOnlyWhereItIsPlaced() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        let plain = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [], output: .init(format: "png"))))
+        let layered = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "layer", params: ["asset": .string("emblem.png"), "width": .number(200), "gravity": .string("southEast")])], output: .init(format: "png"))))
+        #expect((plain.width, plain.height) == (layered.width, layered.height))
+        #expect(plain.data != layered.data)
+        // The top-left corner is far from the layer: its pixels are unchanged.
+        let a = try await Hokusai(data: plain.data).extract(x: 0, y: 0, width: 100, height: 100).raw(.rgb8).data
+        let b = try await Hokusai(data: layered.data).extract(x: 0, y: 0, width: 100, height: 100).raw(.rgb8).data
+        #expect(a == b)
+    }
+
+    @Test func blendModeAndOpacityChangeTheResult() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        func render(_ params: [String: ParamValue]) async throws -> Data {
+            var p: [String: ParamValue] = ["asset": .string("phone.jpg"), "width": .number(600), "gravity": .string("northWest"), "offsetX": .number(0), "offsetY": .number(0)]
+            p.merge(params) { $1 }
+            return try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "layer", params: p)], output: .init(format: "png")))).data
+        }
+        let normal = try await render([:]), multiply = try await render(["blend": .string("multiply")]), faint = try await render(["opacity": .number(0.25)])
+        #expect(normal != multiply && normal != faint && multiply != faint)
+    }
+
+    @Test func aMaskTurnsBrightnessIntoTransparency() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        let own = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "mask")], output: .init(format: "png"))))
+        let ownAlpha = try await alphaRange(own.data)
+        #expect(ownAlpha.hasAlpha && ownAlpha.min < ownAlpha.max)            // a soft mask: many alpha values
+
+        let hard = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "mask", params: ["threshold": .number(128)])], output: .init(format: "png"))))
+        let hardAlpha = try await alphaRange(hard.data)
+        #expect(hardAlpha.min == 0 && hardAlpha.max == 255)
+
+        // A picture mask is stretched to the size of the image entering the step, even after a resize.
+        let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(500), "fit": .string("inside")]), Step(id: "m", op: "mask", params: ["source": .string("picture")])], output: .init(format: "png"))
+        #expect(RecipeSizing.needsSizes(recipe))
+        let pictured = try await service.render(RenderRequest(uploadId: id, recipe: recipe))
+        #expect((pictured.width, pictured.height) == (500, 312))
+        #expect(try await alphaRange(pictured.data).min < 255)
+    }
+
+    @Test func theMaskStepNamesTheSizeInTheGeneratedCode() async throws {
+        let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(500), "fit": .string("inside")]), Step(id: "m", op: "mask", params: ["source": .string("picture"), "feather": .number(2), "invert": .bool(true)])], output: .init(format: "png"))
+        let sized = try SwiftCodeGenerator.chain(recipe, sizes: ["m": PixelSize(width: 500, height: 312)]).joined(separator: "\n")
+        #expect(sized.contains(".resize(width: 500, height: 312, fit: .fill)"))
+        #expect(sized.contains(".blur(sigma: 2)") && sized.contains(".negate()"))
+        #expect(try SwiftCodeGenerator.chain(recipe).joined().contains("imageWidth"))     // without a size it says what is missing
+    }
+
+    @Test func aSecondImageComesFromAnUploadNeverAPath() async throws {
+        let store = UploadStore()
+        let base = try await store.put(try fixture("scene.png"))
+        let second = try await store.put(try fixture("emblem.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        let recipe = Recipe(steps: [Step(op: "layer", params: ["asset": .string("second"), "width": .number(150)])], output: .init(format: "png"))
+        await #expect(throws: RecipeError.self) { try await service.render(RenderRequest(uploadId: base, recipe: recipe)) }     // not provided
+        let ok = try await service.render(RenderRequest(uploadId: base, recipe: recipe, assets: ["second": second]))
+        #expect(ok.width == 1600)
+        for evil in ["../../etc/passwd", "/etc/passwd", "scene.png/../mask.png"] {
+            let bad = Recipe(steps: [Step(op: "layer", params: ["asset": .string(evil)])], output: .init(format: "png"))
+            await #expect(throws: RecipeError.self) { try await service.render(RenderRequest(uploadId: base, recipe: bad)) }
+        }
+    }
+
+    @Test func theNewQuickOperationsDoWhatTheySay() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        func size(_ steps: [Step]) async throws -> (Int, Int) { let r = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: steps, output: .init(format: "png")))); return (r.width, r.height) }
+        #expect(try await size([Step(op: "extend", params: ["top": .number(10), "bottom": .number(20), "left": .number(30), "right": .number(40)])]) == (1670, 1030))
+        #expect(try await size([Step(op: "channel", params: ["channel": .string("red")])]) == (1600, 1000))
+        let removed = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "ensureAlpha"), Step(op: "removeAlpha")], output: .init(format: "png"))))
+        #expect(!(try await alphaRange(removed.data).hasAlpha))
+        let added = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "ensureAlpha")], output: .init(format: "png"))))
+        #expect(try await alphaRange(added.data).hasAlpha)
+    }
+}
+
+@Suite struct BoundPipelineCodeTests {
+    private let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(800), "fit": .string("inside")]), Step(op: "mask", params: ["threshold": .number(100)]), Step(op: "flatten")], output: .init(format: "png"))
+
+    @Test func aMaskFromTheImagesOwnBrightnessNamesThePipelineItIsTakenFrom() throws {
+        let code = try SwiftCodeGenerator.swift(recipe)
+        #expect(code.contains("let image = try Hokusai(url: URL(fileURLWithPath: \"input.jpg\"))"))
+        #expect(code.contains("let output = try await image"))
+        #expect(code.contains(".withAlpha(from: image.grayscale()") && code.contains(".threshold(100)"))
+        #expect(!code.contains("§") && !code.contains("\u{1}"))
+        // the resize belongs to the bound image, the flatten comes after the mask
+        let beforeOutput = try #require(code.range(of: "let output")).lowerBound
+        #expect(code[..<beforeOutput].contains(".resize(width: 800"))
+        #expect(code[beforeOutput...].contains(".flatten(") || code[beforeOutput...].contains(".png()"))
+    }
+
+    @Test func serverVariantsBindToo() throws {
+        let vapor = try SwiftCodeGenerator.swift(recipe, target: .vapor)
+        #expect(vapor.contains("let image = try await req.hokusaiImage") && vapor.contains("return try await image"))
+        let hb = try SwiftCodeGenerator.swift(recipe, target: .hummingbird)
+        #expect(hb.contains("let upload = try await request.hokusaiImage") && hb.contains("let image = upload") && hb.contains("return try await image"))
+    }
+
+    @Test func twoMasksGetTwoNames() throws {
+        let two = Recipe(steps: [Step(op: "mask"), Step(op: "mask", params: ["invert": .bool(true)])], output: .init(format: "png"))
+        let code = try SwiftCodeGenerator.swift(two)
+        #expect(code.contains("let image = ") && code.contains("let image2 = image") && code.contains("image2.grayscale()"))
     }
 }

@@ -95,8 +95,9 @@
   "area": "Geometry",
   "item": "Extend (canvas)",
   "api": "extend(...)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground: padding per side, colour, edge copy, tiling or mirroring",
+  "op": "extend"
  },
  {
   "area": "Geometry",
@@ -109,8 +110,9 @@
   "area": "Geometry",
   "item": "Trim",
   "api": "trim(...)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "trim"
  },
  {
   "area": "Effects",
@@ -204,8 +206,9 @@
   "area": "Effects",
   "item": "Linear",
   "api": "linear(multiply:add:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "linear"
  },
  {
   "area": "Advanced pixels",
@@ -223,52 +226,67 @@
  },
  {
   "area": "Advanced pixels",
-  "item": "Dilate / erode",
-  "api": "dilate(radius:), erode(radius:)",
-  "status": "planned",
-  "where": "Playground"
+  "item": "Dilate",
+  "api": "dilate(radius:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "dilate"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Erode",
+  "api": "erode(radius:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "erode"
  },
  {
   "area": "Advanced pixels",
   "item": "Edge detectors",
   "api": "edges(_:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground: Sobel, Scharr, Prewitt, Canny",
+  "op": "edges"
  },
  {
   "area": "Advanced pixels",
   "item": "Channel extraction",
   "api": "extractChannel(_:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "channel"
  },
  {
   "area": "Advanced pixels",
   "item": "Alpha from a mask",
-  "api": "joinAlpha(_:)",
-  "status": "planned",
-  "where": "Playground (needs a second image asset for masks)"
+  "api": "withAlpha(from:)",
+  "status": "implemented",
+  "where": "Playground: the image's own brightness or a picture (stretched to the size entering the step), with threshold, feather and invert; the generated Swift binds the pipeline it is taken from",
+  "op": "mask"
  },
  {
   "area": "Colour and alpha",
   "item": "Colour-space conversion",
   "api": "convert(to:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "colorspace"
  },
  {
   "area": "Colour and alpha",
   "item": "Ensure alpha",
   "api": "ensureAlpha(opacity:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "ensureAlpha"
  },
  {
   "area": "Colour and alpha",
   "item": "Remove alpha",
   "api": "removeAlpha()",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "removeAlpha"
  },
  {
   "area": "Colour and alpha",
@@ -290,8 +308,9 @@
   "area": "Composition and text",
   "item": "Image layers, blend, opacity, compositing space",
   "api": "composite(_:space:)",
-  "status": "planned",
-  "where": "Playground (needs extra image assets)"
+  "status": "implemented",
+  "where": "Playground: a bundled picture or your second image, width, placement or tiling, twenty blend modes, opacity, sRGB or linear blending",
+  "op": "layer"
  },
  {
   "area": "Encoders",

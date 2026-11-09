@@ -57,13 +57,13 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
         do { return json(try await api.upload(body(req)), status: .created) } catch { return fail(error) }
     }
     routes.post("code") { req async -> Response in
-        do { return json(try api.code(body(req))) } catch { return fail(error) }
+        do { return json(try await api.code(body(req))) } catch { return fail(error) }
     }
     routes.post("inspect") { req async -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe?; let page: Int? }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe?; let page: Int?; let assets: [String: String]? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: body(req))
-            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe, page: body.page))
+            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe, page: body.page, assets: body.assets))
         } catch { return fail(error) }
     }
     routes.post("render") { req async -> Response in
@@ -92,10 +92,10 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
         } catch { return fail(error) }
     }
     routes.post("compare") { req async -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe; let page: Int? }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe; let page: Int?; let assets: [String: String]? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: body(req))
-            return json(try await api.compare(uploadId: body.uploadId, recipe: body.recipe, page: body.page))
+            return json(try await api.compare(uploadId: body.uploadId, recipe: body.recipe, page: body.page, assets: body.assets))
         } catch { return fail(error) }
     }
 }

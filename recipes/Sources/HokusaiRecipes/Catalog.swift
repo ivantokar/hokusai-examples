@@ -3,45 +3,45 @@ import Hokusai
 
 // MARK: - Spec helpers
 
-private func num(_ name: String, _ label: String, _ def: Double, min: Double? = nil, max: Double? = nil, step: Double? = nil,
+func num(_ name: String, _ label: String, _ def: Double, min: Double? = nil, max: Double? = nil, step: Double? = nil,
                  unit: String? = nil, advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .number, default: .number(def), min: min, max: max, step: step, unit: unit, options: nil, advanced: advanced, help: help)
 }
 
-private func int(_ name: String, _ label: String, _ def: Int, min: Int? = nil, max: Int? = nil, unit: String? = nil,
+func int(_ name: String, _ label: String, _ def: Int, min: Int? = nil, max: Int? = nil, unit: String? = nil,
                  advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .integer, default: .number(Double(def)), min: min.map(Double.init), max: max.map(Double.init), step: 1, unit: unit, options: nil, advanced: advanced, help: help)
 }
 
-private func flag(_ name: String, _ label: String, _ def: Bool = false, advanced: Bool = false, help: String? = nil) -> ParamSpec {
+func flag(_ name: String, _ label: String, _ def: Bool = false, advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .boolean, default: .bool(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: advanced, help: help)
 }
 
-private func choice(_ name: String, _ label: String, _ def: String, _ options: [(String, String)], advanced: Bool = false, help: String? = nil) -> ParamSpec {
+func choice(_ name: String, _ label: String, _ def: String, _ options: [(String, String)], advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .choice, default: .string(def), min: nil, max: nil, step: nil, unit: nil,
               options: options.map { Choice(value: $0.0, label: $0.1) }, advanced: advanced, help: help)
 }
 
-private func color(_ name: String, _ label: String, _ def: String, advanced: Bool = false, help: String? = nil) -> ParamSpec {
+func color(_ name: String, _ label: String, _ def: String, advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .color, default: .string(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: advanced, help: help)
 }
 
-private func text(_ name: String, _ label: String, _ def: String, help: String? = nil) -> ParamSpec {
+func text(_ name: String, _ label: String, _ def: String, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .text, default: .string(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: false, help: help)
 }
 
 /// `.name(label: value, ...)`, leaving out arguments that equal the library default.
-private func call(_ name: String, _ args: [(label: String, value: String, include: Bool)]) -> String {
+func call(_ name: String, _ args: [(label: String, value: String, include: Bool)]) -> String {
     let parts = args.filter(\.include).map { $0.label.isEmpty ? $0.value : "\($0.label): \($0.value)" }
     return ".\(name)(\(parts.joined(separator: ", ")))"
 }
 
-private let gravities: [(String, String)] = [
+let gravities: [(String, String)] = [
     ("center", "Center"), ("north", "Top"), ("south", "Bottom"), ("east", "Right"), ("west", "Left"),
     ("northWest", "Top left"), ("northEast", "Top right"), ("southWest", "Bottom left"), ("southEast", "Bottom right"),
 ]
 
-private func gravity(_ name: String) -> Gravity {
+func gravity(_ name: String) -> Gravity {
     switch name {
     case "north": .north
     case "south": .south
@@ -60,17 +60,20 @@ private func gravity(_ name: String) -> Gravity {
 struct OperationDef: Sendable {
     let spec: OperationSpec
     let apply: @Sendable (Hokusai, Params) throws -> Hokusai
+    /// For operations that need pictures or the size of the image entering the step; `apply` is unused then.
+    var contextApply: (@Sendable (Hokusai, Params, StepContext) throws -> Hokusai)? = nil
+    var contextSwift: (@Sendable (Params, PixelSize?) -> String)? = nil
     /// One chained call, for example `.resize(width: 800, fit: .cover)`.
     let swift: @Sendable (Params) -> String
 }
 
-private func op(_ id: String, _ title: String, _ group: OperationGroup, api: String, _ summary: String, params: [ParamSpec] = [],
+func op(_ id: String, _ title: String, _ group: OperationGroup, api: String, _ summary: String, params: [ParamSpec] = [],
                 note: String? = nil, apply: @escaping @Sendable (Hokusai, Params) throws -> Hokusai,
                 swift: @escaping @Sendable (Params) -> String) -> OperationDef {
     OperationDef(spec: OperationSpec(id: id, title: title, group: group, api: api, summary: summary, params: params, previewNote: note), apply: apply, swift: swift)
 }
 
-let allOperations: [OperationDef] = [
+let coreOperations: [OperationDef] = [
     // Geometry
     op("autoOrient", "Auto-orient", .geometry, api: "autoOrient()", "Applies the EXIF orientation so the pixels are upright.",
        apply: { img, _ in img.autoOrient() }, swift: { _ in ".autoOrient()" }),

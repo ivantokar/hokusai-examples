@@ -82,7 +82,7 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 | `POST /api/raw/output` `{ uploadId, recipe, format, maxEdge? }` | the recipe's raw pixels with `X-Raw-*` headers for the layout, bit depth, stride and alpha convention |
 | `POST /api/raw/input?width&height&format&stride?` (raw body) | declares the bytes as raw pixels, answers a PNG, reads them back in the same layout and reports `X-Raw-Roundtrip` |
 | `POST /api/inspect` `{ uploadId, recipe?, page? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
-| `POST /api/code` `{ recipe, target }` | `{ code }` |
+| `POST /api/code` `{ recipe, target, uploadId? }` | `{ code }`; with an upload, a mask's size is named in the code |
 | `POST /api/minimal/resize?width=` (raw body) | the minimal integration |
 
 Errors are `{ "error": { "code", "message" } }` with a status you can act on: 404 expired upload, 413 too large, 422 not an image or a recipe that cannot apply (for example a crop outside the image).
@@ -118,10 +118,12 @@ Never commit an edited checkout.
 
 ## Known limitations
 
+- Layers and masks use pictures from a fixed set of bundled samples or from your second image. A picture mask is stretched to the size of the image entering its step, so the demo measures that size by running the earlier steps (and the generated Swift names it). Convolution kernels, colour matrices and affine transforms are not in the catalog yet.
+
 - Measured by the Runtime Lab on both backends: aborting a `/api/render` request in the browser does not stop the evaluation on the server; it finishes the work first. Treat browser-side cancellation as not proving native cancellation.
 
 - macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
-- Image layers and masks, split compare, and switching between two running backends are planned. The macOS app has numeric crop only and no vector document builder yet (its output panel does offer the raster PDF and every encoder).
+- Split compare and switching between two running backends are planned. The macOS app has numeric crop only, no vector document builder yet, and takes its second layer image through a file picker (its output panel does offer the raster PDF and every encoder).
 - Raw pixels: 16-bit values are shown as little-endian, the server's native order here (checked against the 8-bit output); the library has no statistics or histogram API and the demo does not invent one. Animations can be inspected and read frame by frame but not edited or encoded as animations: that is not in the library.
 - Vector documents: pictures come from the bundled samples or your upload; there is no font upload, so text uses the system's sans, serif and monospace. The "selectable text" indicator in the Web UI is a heuristic (the PDF carries a text font with a character map); the unit tests confirm it with a real PDF reader on macOS.
 - Browsers do not display TIFF, HEIF or PDF as images, so the playground shows a labelled PNG decoded from the real bytes; Export always downloads the real file.

@@ -1,4 +1,5 @@
 import Foundation
+import Hokusai
 import HokusaiRecipes
 import HokusaiPDF
 
@@ -12,7 +13,9 @@ import HokusaiPDF
 let args = CommandLine.arguments.dropFirst()
 switch args.first {
 case "snippets":
-    guard let directory = args.dropFirst().first else { FileHandle.standardError.write(Data("usage: recipes-tool snippets <dir>\n".utf8)); exit(2) }
+    guard let directory = args.dropFirst().first else { FileHandle.standardError.write(Data("usage: recipes-tool snippets <dir> [fixtures]\n".utf8)); exit(2) }
+    let fixtures = URL(fileURLWithPath: args.dropFirst(2).first ?? "fixtures")
+    let assets: RecipeCompiler.Assets = { name in try Hokusai(url: fixtures.appending(path: name)) }
     let root = URL(fileURLWithPath: directory)
     try? FileManager.default.removeItem(at: root)
     var targets: [String] = []
@@ -21,7 +24,9 @@ case "snippets":
         let name = "Preset_" + preset.id.replacingOccurrences(of: "-", with: "_")
         let folder = root.appending(path: "Sources/\(name)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try SwiftCodeGenerator.swift(preset.recipe, target: .core).write(to: folder.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        // A mask picture is stretched to the size of the image entering its step; measure it so the code can say so.
+        let sizes = try await RecipeSizing.resolve(preset.recipe, source: try Hokusai(url: fixtures.appending(path: preset.sample)), assets: assets)
+        try SwiftCodeGenerator.swift(preset.recipe, target: .core, sizes: sizes).write(to: folder.appending(path: "main.swift"), atomically: true, encoding: .utf8)
         targets.append(name)
         let ext = Catalog.outputs.first { $0.format == preset.recipe.output.format }!.fileExtension
         manifest.append(["target": name, "sample": preset.sample, "output": "result.\(ext)"])

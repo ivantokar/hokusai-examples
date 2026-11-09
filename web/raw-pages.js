@@ -57,7 +57,7 @@ export function initRaw(container, ctx) {
     if (!state.upload) { outFacts.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first. Raw pixels are read from the current pipeline." })); return; }
     run.disabled = true;
     try {
-      const res = await fetch("/api/raw/output", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), format: fmt.value, premultiplied: pre.checked, maxEdge: Number(edge.value), page: state.page || null }) });
+      const res = await fetch("/api/raw/output", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), format: fmt.value, premultiplied: pre.checked, maxEdge: Number(edge.value), page: state.page || null, assets: state.assets }) });
       if (!res.ok) throw await apiError(res);
       bytes = new Uint8Array(await res.arrayBuffer());
       const h = (n) => res.headers.get(n);
@@ -136,7 +136,7 @@ export function initPages(container, ctx) {
     if (!state.upload) { body.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
     const mine = ++rev;
     try {
-      const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, page: state.page || null }) });
+      const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, page: state.page || null, assets: state.assets }) });
       if (!res.ok) throw await apiError(res);
       const { source: f } = await res.json(); if (mine !== rev) return;
       const count = f.pages;

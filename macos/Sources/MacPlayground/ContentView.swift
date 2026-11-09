@@ -62,7 +62,10 @@ struct ContentView: View {
             Task { await open(url: url) }
             return true
         }
-        .task { if playground.sourceData == nil, let first = Samples.all.first, let data = Samples.data(first.file) { try? await playground.open(data: data, name: first.file) } }
+        .task {
+            playground.pictures = { Samples.data($0) }
+            if playground.sourceData == nil, let first = Samples.all.first, let data = Samples.data(first.file) { try? await playground.open(data: data, name: first.file) }
+        }
     }
 
     private func open(url: URL) async {

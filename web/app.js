@@ -20,7 +20,7 @@ const state = {
   history: [], future: [],
   full: false,             // render the result at its real size instead of fitting the preview
   view: "result", lastGood: null, resultUrl: null,
-  section: "playground", page: 0, itab: "metadata", target: "core", tab: "swift", codeText: "", facts: {},
+  section: "playground", assets: {}, page: 0, itab: "metadata", target: "core", tab: "swift", codeText: "", facts: {},
 };
 
 const ops = () => new Map(state.catalog.operations.map((o) => [o.id, o]));
@@ -167,9 +167,10 @@ function drawSettings() {
   const common = spec.params.filter((p) => !p.advanced), adv = spec.params.filter((p) => p.advanced);
   const nodes = [el("p", { className: "api", textContent: spec.api })];
   if (spec.previewNote) nodes.push(el("p", { className: "note", textContent: spec.previewNote }));
-  nodes.push(...common.map((p) => field(p, step.params, (v) => setParam(step.id, p, v))));
-  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => setParam(step.id, p, v)))));
+  nodes.push(...common.map((p) => field(p, step.params, (v) => { setParam(step.id, p, v); if (p.name === "asset") drawSettings(); })));
+  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => { setParam(step.id, p, v); if (p.name === "asset") drawSettings(); }))));
   if (step.op === "crop") nodes.push(cropControls(step));
+  if ((step.op === "layer" || step.op === "mask") && (step.params.asset ?? "") === "second") nodes.push(secondImageControl());
   if (spec.params.length) { const r = el("button", { type: "button", className: "btn small", textContent: "Reset to defaults" }); r.onclick = () => { edit((rr) => { rr.steps.find((s) => s.id === step.id).params = {}; }); drawSettings(); }; nodes.push(r); }
   box.replaceChildren(...nodes);
 }
@@ -182,6 +183,22 @@ function setParam(stepId, p, value) {
   const step = state.recipe.steps.find((s) => s.id === stepId);
   if (value === p.default) delete step.params[p.name]; else step.params[p.name] = value;
   changed(false);
+}
+
+// ---------- a second picture for layers and masks ----------
+function secondImageControl() {
+  const input = el("input", { type: "file", accept: "image/*", id: "second-file" });
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    try {
+      const res = await fetch("/api/uploads", { method: "POST", body: file });
+      if (!res.ok) throw await apiError(res);
+      state.assets.second = (await res.json()).uploadId; state.secondName = file.name;
+      drawSettings(); changed(false);
+    } catch (e) { setStatus(e.message, "error"); }
+  };
+  return el("div", { className: "field" }, el("label", { htmlFor: "second-file" }, "Second image"),
+    el("div", { className: "help", textContent: state.assets.second ? `Using ${state.secondName ?? "your second image"} (kept on the server for a few minutes).` : "Choose the picture to place. It is uploaded like the main image and forgotten after a while." }), input);
 }
 
 // ---------- output ----------
@@ -215,7 +232,7 @@ async function render(retry = true) {
   const rev = state.revision; inflight?.abort(); inflight = new AbortController();
   const started = performance.now();
   try {
-    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true, page: state.page || null };
+    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true, page: state.page || null, assets: state.assets };
     const res = await fetch("/api/render", { method: "POST", body: JSON.stringify(body), signal: inflight.signal });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob();
@@ -262,7 +279,7 @@ function scheduleCode() { clearTimeout(codeTimer); codeTimer = setTimeout(loadCo
 async function loadCode() {
   const rev = ++codeRev;
   try {
-    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target }) });
+    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target, uploadId: state.upload?.uploadId ?? null, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const { code } = await res.json(); if (rev !== codeRev) return;
     state.codeText = code; drawCode();
@@ -295,7 +312,7 @@ function drawFacts() {
 async function doExport() {
   setStatus("Rendering the export from the original…");
   try {
-    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null }) });
+    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); const spec = state.catalog.outputs.find((o) => o.format === state.recipe.output.format);
     const base = (state.upload.name || "image").replace(/\.[^.]+$/, "");
@@ -400,7 +417,7 @@ async function loadInspect() {
   if (!state.upload) { $("inspect-body").replaceChildren(el("p", { className: "empty", textContent: "Open an image to inspect it." })); return; }
   const rev = ++inspectRev;
   try {
-    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null }) });
+    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const data = await res.json(); if (rev !== inspectRev) return;
     drawInspect(data);
@@ -464,7 +481,7 @@ async function ensureCropBase() {
   const rev = ++crop.rev; crop.ctrl?.abort(); crop.ctrl = new AbortController();
   try {
     const recipe = clone(state.recipe); recipe.output = { format: "webp", options: { quality: 90 } };
-    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id, page: state.page || null }) });
+    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); if (rev !== crop.rev) return;
     if (crop.base?.url) URL.revokeObjectURL(crop.base.url);

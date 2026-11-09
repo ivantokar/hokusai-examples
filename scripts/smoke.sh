@@ -170,6 +170,38 @@ assert json.load(post("/api/inspect", {"uploadId": pdf, "page": 1}))["source"]["
 PY
 ok "raw output layout, raw input round trip and refusal, page and frame selection"
 
+# Layers and masks: pictures come from a fixed set or from named uploads, never from a path; masks match the image size.
+python3 - "$base" "$here/fixtures" "$id" <<'PY' || fail "layers and masks"
+import json, sys, urllib.error, urllib.request
+base, fx, upload = sys.argv[1], sys.argv[2], sys.argv[3]
+def post(path, body, raw=False):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=body if raw else json.dumps(body).encode()))
+def render(steps, extra=None, fmt="png"):
+    body = {"uploadId": upload, "recipe": {"version": 1, "steps": steps, "output": {"format": fmt}}}
+    body.update(extra or {})
+    r = post("/api/render", body); return r.read(), r.headers
+plain, _ = render([])
+layered, h = render([{"op": "layer", "params": {"asset": "emblem.png", "width": 200}}])
+assert layered != plain and h["x-hokusai-width"] == "1000", "the emblem layer changed nothing, or resized the picture"
+second = json.load(post("/api/uploads", open(f"{fx}/emblem.png", "rb").read(), raw=True))["uploadId"]
+with_second, _ = render([{"op": "layer", "params": {"asset": "second", "width": 200}}], {"assets": {"second": second}})
+assert with_second != plain, "the second image changed nothing"
+try: render([{"op": "layer", "params": {"asset": "second"}}]); raise SystemExit("a missing second image should be refused")
+except urllib.error.HTTPError as e: assert e.code == 422, e.code
+for evil in ("../../etc/passwd", "/etc/passwd", "scene.png/../mask.png"):
+    try: render([{"op": "layer", "params": {"asset": evil}}]); raise SystemExit("a path was accepted as a picture: " + evil)
+    except urllib.error.HTTPError as e: assert e.code == 422, (evil, e.code)
+recipe = {"version": 1, "steps": [{"id": "r", "op": "resize", "params": {"width": 500, "fit": "inside"}}, {"id": "m", "op": "mask", "params": {"source": "picture"}}], "output": {"format": "png"}}
+r = post("/api/render", {"uploadId": upload, "recipe": recipe})
+assert r.headers["x-hokusai-width"] == "500", r.headers["x-hokusai-width"]
+raw = post("/api/raw/output", {"uploadId": upload, "recipe": recipe, "format": "rgba8", "maxEdge": 100}).read()
+alphas = raw[3::4]
+assert min(alphas) < max(alphas), "a picture mask should produce partial transparency"
+code = json.load(post("/api/code", {"recipe": recipe, "uploadId": upload}))["code"]
+assert ".resize(width: 500, height: 800, fit: .fill)" in code, code
+PY
+ok "image layers, second image by upload, refused paths, picture mask sized to its step"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

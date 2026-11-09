@@ -140,7 +140,7 @@ public enum RecipeError: Error, Equatable, CustomStringConvertible {
         case .unsupportedVersion(let v): "recipe version \(v) is not supported (current is \(Recipe.currentVersion))"
         case .unknownOperation(let op): "unknown operation '\(op)'"
         case .unknownParameter(let op, let name): "operation '\(op)' has no parameter '\(name)'"
-        case .invalidParameter(let op, let name, let reason): "'\(op)'.\(name): \(reason)"
+        case .invalidParameter(let op, let name, let reason): "\(op) → \(name): \(reason)"
         case .unknownFormat(let f): "unknown output format '\(f)'"
         case .tooManySteps(let n): "a recipe may have at most \(n) steps"
         }

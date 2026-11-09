@@ -17,14 +17,17 @@ public struct RenderRequest: Codable, Sendable {
     public var viewable: Bool?
     /// Zero-based page of a multipage input (PDF pages, GIF frames), as `InputOptions.page` takes it.
     public var page: Int?
+    /// Names of extra pictures a recipe may use, mapped to upload ids: `["second": "<upload id>"]`.
+    public var assets: [String: String]?
 
-    public init(uploadId: String, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil, viewable: Bool? = nil, page: Int? = nil) {
+    public init(uploadId: String, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil, viewable: Bool? = nil, page: Int? = nil, assets: [String: String]? = nil) {
         self.uploadId = uploadId
         self.recipe = recipe
         self.previewMaxEdge = previewMaxEdge
         self.stopBefore = stopBefore
         self.viewable = viewable
         self.page = page
+        self.assets = assets
     }
 }
 
@@ -76,7 +79,23 @@ public struct RenderService: Sendable {
     static let browserCanShow: Set<String> = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]
 
     public let uploads: UploadStore
-    public init(uploads: UploadStore) { self.uploads = uploads }
+    /// Where the bundled pictures live; `nil` means only uploaded pictures can be placed.
+    public let fixtures: URL?
+    public init(uploads: UploadStore, fixtures: URL? = nil) { self.uploads = uploads; self.fixtures = fixtures }
+
+    /// Resolves picture names for image layers and masks: the bundled samples, and uploads named by the request.
+    /// A name is only ever a key into those two sets, never a path.
+    public func assets(named: [String: String]?) async -> RecipeCompiler.Assets {
+        var uploaded: [String: Data] = [:]
+        for (name, id) in named ?? [:] { if let data = await uploads.get(id) { uploaded[name] = data } }
+        let fixtures = fixtures, uploads = uploaded
+        return { name in
+            if let data = uploads[name] { return try Hokusai(data: data) }
+            if name == "second" { throw RecipeError.invalidParameter(operation: "image", name: "picture", reason: "“My second image” needs a second image: choose one in the step's settings") }
+            guard let fixtures, layerAssetChoices.contains(where: { $0.0 == name }) else { throw RecipeError.invalidParameter(operation: "image", name: "picture", reason: "unknown picture '\(name)'") }
+            return try Hokusai(url: fixtures.appending(path: name))
+        }
+    }
 
     public func render(_ request: RenderRequest) async throws -> RenderResult {
         if let edge = request.previewMaxEdge, !(16...4096).contains(edge) { throw RenderError.invalidPreviewSize }
@@ -91,7 +110,9 @@ public struct RenderService: Sendable {
             guard let index = recipe.steps.firstIndex(where: { $0.id == stop }) else { throw RenderError.unknownStep }
             recipe.steps = Array(recipe.steps[..<index])
         }
-        let compiled = try RecipeCompiler.compile(recipe, source: source, fitting: request.previewMaxEdge)
+        let assets = await assets(named: request.assets)
+        let sizes = RecipeSizing.needsSizes(recipe) ? try await RecipeSizing.resolve(recipe, source: source, assets: assets) : [:]
+        let compiled = try RecipeCompiler.compile(recipe, source: source, fitting: request.previewMaxEdge, assets: assets, sizes: sizes)
         let output = try await compiled.pipeline.data()
         var result = RenderResult(data: output.data, mime: compiled.mime, fileExtension: compiled.fileExtension,
                                   width: output.info.width, height: output.info.height, serverMilliseconds: 0)

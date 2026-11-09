@@ -105,4 +105,33 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
         #expect(code.contains(".resize(width: 320, height: 320, position: .attention)"))
         #expect(!code.contains("1280") && !code.contains("400"))     // preview scaling never leaks into the code
     }
+
+    @Test func layersAndMasksNeedPicturesAndSayWhenTheyAreMissing() async throws {
+        let p = try await make()
+        p.addStep("layer")
+        await p.settle()
+        guard case .failed(let message) = p.status else { Issue.record("expected a failure without pictures, got \(p.status)"); return }
+        #expect(message.contains("unknown picture"))
+        p.pictures = { name in try? Data(contentsOf: fixtures.appending(path: name)) }
+        await p.settle()
+        guard case .ready = p.status else { Issue.record("expected ready with pictures, got \(p.status)"); return }
+
+        // A picture mask is stretched to the size of the image entering its step, even after a resize.
+        p.perform { $0.steps = [Step(op: "resize", params: ["width": .number(300), "fit": .string("inside")]), Step(op: "mask", params: ["source": .string("picture")])] }
+        await p.settle()
+        guard case .ready(let summary) = p.status else { Issue.record("mask: \(p.status)"); return }
+        #expect(summary.width == 300)
+    }
+
+    @Test func aSecondImageIsOptionalUntilAStepAsksForIt() async throws {
+        let p = try await make()
+        p.pictures = { name in try? Data(contentsOf: fixtures.appending(path: name)) }
+        p.perform { $0.steps = [Step(op: "layer", params: ["asset": .string("second")])] }
+        await p.settle()
+        guard case .failed(let message) = p.status else { Issue.record("expected a failure, got \(p.status)"); return }
+        #expect(message.contains("second image"))
+        p.setSecondImage(data: try fixture("emblem.png"), name: "emblem.png")
+        await p.settle()
+        guard case .ready = p.status else { Issue.record("expected ready, got \(p.status)"); return }
+    }
 }

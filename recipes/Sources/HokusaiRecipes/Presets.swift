@@ -39,6 +39,22 @@ public enum Presets {
                 step("clahe"),
                 step("sharpen", ["sigma": n(1.2)]),
                ], output: OutputSettings(format: "jpeg", options: ["quality": n(88)]))),
+        Preset(id: "stamp", title: "Emblem stamp", summary: "A transparent emblem layered into a corner.", sample: "scene.png",
+               recipe: Recipe(name: "stamp", steps: [
+                step("resize", ["width": n(1200), "fit": .string("inside")]),
+                step("layer", ["asset": .string("emblem.png"), "width": n(200), "gravity": .string("southEast"), "opacity": n(0.9)]),
+               ], output: OutputSettings(format: "png"))),
+        Preset(id: "fade", title: "Fade into navy", summary: "A picture mask makes the photo fade out, then the navy shows through.", sample: "scene.png",
+               recipe: Recipe(name: "fade", steps: [
+                step("resize", ["width": n(1000), "fit": .string("inside")]),
+                step("mask", ["source": .string("picture"), "asset": .string("mask.png")]),
+                step("flatten", ["background": .string("#1b3a57")]),
+               ], output: OutputSettings(format: "jpeg", options: ["quality": n(88)]))),
+        Preset(id: "cutout", title: "Brightness cut-out", summary: "Keeps only the bright parts of the picture: its own brightness becomes its transparency.", sample: "scene.png",
+               recipe: Recipe(name: "cutout", steps: [
+                step("resize", ["width": n(1000), "fit": .string("inside")]),
+                step("mask", ["threshold": n(110), "feather": n(1.5)]),
+               ], output: OutputSettings(format: "png"))),
         Preset(id: "watermark", title: "Text watermark", summary: "A translucent corner mark on a resized copy.", sample: "scene.png",
                recipe: Recipe(name: "watermark", steps: [
                 step("resize", ["width": n(1200), "fit": .string("inside")]),

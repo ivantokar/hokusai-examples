@@ -27,7 +27,7 @@ public struct DemoAPI: Sendable {
         self.fixtures = fixtures
         self.backend = backend
         self.uploads = uploads
-        self.render = RenderService(uploads: uploads)
+        self.render = RenderService(uploads: uploads, fixtures: fixtures)
         self.hokusaiVersion = hokusaiVersion
     }
 
@@ -179,7 +179,7 @@ public struct DemoAPI: Sendable {
 
     /// The same recipe through every encoder this runtime has, with default options, so sizes can be compared.
     /// Each one is encoded for real; the result is reduced to `maxEdge` first to keep the comparison bounded.
-    public func compare(uploadId: String, recipe: Recipe, maxEdge: Int = 2048, page: Int? = nil) async throws -> Data {
+    public func compare(uploadId: String, recipe: Recipe, maxEdge: Int = 2048, page: Int? = nil, assets: [String: String]? = nil) async throws -> Data {
         struct Row: Encodable { let format: String; let title: String; let ok: Bool; let bytes: Int?; let width: Int?; let height: Int?; let milliseconds: Double?; let error: String?; let mime: String? }
         struct Body: Encodable { let rows: [Row]; let scaledTo: Int }
         var rows: [Row] = []
@@ -187,7 +187,7 @@ public struct DemoAPI: Sendable {
             var r = recipe
             r.output = OutputSettings(format: out.format)
             do {
-                let result = try await render.render(RenderRequest(uploadId: uploadId, recipe: r, previewMaxEdge: maxEdge, page: page))
+                let result = try await render.render(RenderRequest(uploadId: uploadId, recipe: r, previewMaxEdge: maxEdge, page: page, assets: assets))
                 rows.append(Row(format: out.format, title: out.title, ok: true, bytes: result.data.count, width: result.width, height: result.height, milliseconds: result.serverMilliseconds, error: nil, mime: result.mime))
             } catch let error as HokusaiError {
                 rows.append(Row(format: out.format, title: out.title, ok: false, bytes: nil, width: nil, height: nil, milliseconds: nil, error: error.errorDescription ?? "failed", mime: nil))
@@ -209,6 +209,7 @@ public struct DemoAPI: Sendable {
         /// The result is reduced to fit this many pixels first, so a pixel inspector stays small.
         public var maxEdge: Int?
         public var page: Int?
+        public var assets: [String: String]?
     }
 
     public struct RawResult: Sendable {
@@ -238,7 +239,10 @@ public struct DemoAPI: Sendable {
         if let edge = request.maxEdge, !(1...2048).contains(edge) { throw RenderError.invalidPreviewSize }
         guard let bytes = await uploads.get(request.uploadId) else { throw RenderError.unknownUpload }
         var options = InputOptions(); options.page = request.page
-        let compiled = try RecipeCompiler.compile(request.recipe, source: try Hokusai(data: bytes, options: options), fitting: request.maxEdge, encode: false)
+        let source = try Hokusai(data: bytes, options: options)
+        let assets = await render.assets(named: request.assets)
+        let sizes = RecipeSizing.needsSizes(request.recipe) ? try await RecipeSizing.resolve(request.recipe, source: source, assets: assets) : [:]
+        let compiled = try RecipeCompiler.compile(request.recipe, source: source, fitting: request.maxEdge, encode: false, assets: assets, sizes: sizes)
         let image = try await compiled.pipeline.raw(format, premultiplied: request.premultiplied ?? false, background: Hex.parse(request.background ?? "#ffffff") ?? .white)
         return RawResult(data: image.data, width: image.width, height: image.height, channels: image.format.channels, bitDepth: image.format.bitDepth,
                          rowStride: image.rowStride, format: Self.name(of: image.format), premultiplied: image.premultiplied)
@@ -320,14 +324,14 @@ public struct DemoAPI: Sendable {
     /// Facts about the original upload and, when a recipe is given, about the bytes that recipe actually
     /// exports. The output is encoded and read back, so what is shown is what a file would contain and
     /// not what the settings promise.
-    public func inspect(uploadId: String, recipe: Recipe?, page: Int? = nil) async throws -> Data {
+    public func inspect(uploadId: String, recipe: Recipe?, page: Int? = nil, assets: [String: String]? = nil) async throws -> Data {
         guard let bytes = await uploads.get(uploadId) else { throw RenderError.unknownUpload }
         struct Body: Encodable { let source: Facts; let output: Facts?; let outputFormat: String? }
         var options = InputOptions(); options.page = page
         let source = Self.facts(try await Hokusai(data: bytes, options: options).metadata(), bytes: bytes.count)
         var output: Facts?
         if let recipe {
-            let rendered = try await render.render(RenderRequest(uploadId: uploadId, recipe: recipe, page: page))
+            let rendered = try await render.render(RenderRequest(uploadId: uploadId, recipe: recipe, page: page, assets: assets))
             output = Self.facts(try await Hokusai(data: rendered.data).metadata(), bytes: rendered.data.count)
         }
         return try Self.encode(Body(source: source, output: output, outputFormat: recipe?.output.format))
@@ -337,13 +341,20 @@ public struct DemoAPI: Sendable {
         try JSONDecoder().decode(RenderRequest.self, from: body)
     }
 
-    public func code(_ body: Data) throws -> Data {
-        struct Request: Decodable { let recipe: Recipe?; let document: VectorDocumentSpec?; let target: SwiftCodeGenerator.Target? }
+    public func code(_ body: Data) async throws -> Data {
+        struct Request: Decodable { let recipe: Recipe?; let document: VectorDocumentSpec?; let target: SwiftCodeGenerator.Target?; let uploadId: String?; let page: Int?; let assets: [String: String]? }
         struct Response: Encodable { let code: String }
         let request = try JSONDecoder().decode(Request.self, from: body)
         if let document = request.document { return try Self.encode(Response(code: try VectorCodeGenerator.swift(document))) }
         guard let recipe = request.recipe else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "send a recipe or a document")) }
-        return try Self.encode(Response(code: try SwiftCodeGenerator.swift(recipe, target: request.target ?? .core)))
+        // A mask picture is stretched to the size of the image entering its step; with the upload at hand the code names that size.
+        var sizes: [String: PixelSize] = [:]
+        if RecipeSizing.needsSizes(recipe), let id = request.uploadId, let bytes = await uploads.get(id) {
+            var options = InputOptions(); options.page = request.page
+            let source = try Hokusai(data: bytes, options: options)
+            sizes = (try? await RecipeSizing.resolve(recipe, source: source, assets: await render.assets(named: request.assets))) ?? [:]
+        }
+        return try Self.encode(Response(code: try SwiftCodeGenerator.swift(recipe, target: request.target ?? .core, sizes: sizes)))
     }
 
     // MARK: Errors

@@ -19,7 +19,7 @@ let package = Package(
     targets: [
         .target(name: "HokusaiRecipes", dependencies: [.product(name: "Hokusai", package: "hokusai"), .product(name: "HokusaiPDF", package: "hokusai")]),
         .target(name: "HokusaiDemoServices", dependencies: ["HokusaiRecipes", .product(name: "Hokusai", package: "hokusai")]),
-        .executableTarget(name: "recipes-tool", dependencies: ["HokusaiRecipes", .product(name: "HokusaiPDF", package: "hokusai")]),
+        .executableTarget(name: "recipes-tool", dependencies: ["HokusaiRecipes", .product(name: "Hokusai", package: "hokusai"), .product(name: "HokusaiPDF", package: "hokusai")]),
         .testTarget(name: "HokusaiRecipesTests", dependencies: ["HokusaiRecipes", "HokusaiDemoServices"]),
     ]
 )

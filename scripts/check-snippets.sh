@@ -3,7 +3,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
-swift run --package-path "$here/recipes" recipes-tool snippets "$work/snippets"
+swift run --package-path "$here/recipes" recipes-tool snippets "$work/snippets" "$here/fixtures"
 cd "$work/snippets"
 swift build 2>&1 | tail -3
 python3 - "$here" <<'PY'

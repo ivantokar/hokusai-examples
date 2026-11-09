@@ -1,9 +1,11 @@
 import HokusaiRecipes
 import PlaygroundModel
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct InspectorView: View {
     @Environment(Playground.self) private var playground
+    @State private var choosing = false
 
     var body: some View {
         ScrollView {
@@ -27,6 +29,13 @@ struct InspectorView: View {
                             }.padding(.top, 8)
                         }
                     }
+                    if (step.op == "layer" || step.op == "mask"), case .string("second") = step.params["asset"] ?? .string("") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Second image").fontWeight(.medium)
+                            Text(playground.secondImageName.map { "Using \($0)." } ?? "Choose the picture to place.").font(.caption).foregroundStyle(.secondary)
+                            Button("Choose…") { choosing = true }
+                        }
+                    }
                     if !spec.params.isEmpty {
                         Button("Reset to defaults") { for p in spec.params { playground.setParam(step: step.id, p, to: nil) } }
                     }
@@ -36,6 +45,12 @@ struct InspectorView: View {
                 ContentUnavailableView("No step selected", systemImage: "slider.horizontal.3", description: Text("Select a step in the pipeline to edit it."))
                     .padding(.top, 40)
             }
+        }
+        .fileImporter(isPresented: $choosing, allowedContentTypes: [.image]) { result in
+            guard case .success(let url) = result else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? Data(contentsOf: url) { playground.setSecondImage(data: data, name: url.lastPathComponent) }
         }
     }
 }

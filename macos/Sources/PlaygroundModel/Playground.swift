@@ -41,6 +41,12 @@ public final class Playground {
     public private(set) var status: Status = .idle
     public private(set) var canUndo = false
     public private(set) var canRedo = false
+    /// Supplies the bundled pictures (by file name) that image layers and masks use. The app sets it.
+    public var pictures: (@Sendable (String) -> Data?)? { didSet { scheduleRender() } }
+    /// The visitor's second image, for layers and masks that choose “My second image”.
+    public private(set) var secondImageName: String?
+    private var secondImage: Data?
+    public func setSecondImage(data: Data?, name: String?) { secondImage = data; secondImageName = name; bumpAndRender() }
     public var showFullSize = false { didSet { if showFullSize != oldValue { scheduleRender() } } }
 
     // MARK: Internals
@@ -184,6 +190,7 @@ public final class Playground {
         guard let data = sourceData else { status = .idle; return }
         let rev = revision
         let recipe = recipe
+        let pictures = pictures, second = secondImage
         let fitting = showFullSize ? nil : previewEdge
         let debounce = debounce
         status = .updating
@@ -191,7 +198,7 @@ public final class Playground {
             try? await Task.sleep(for: debounce)
             guard !Task.isCancelled else { return }
             let outcome: Result<RenderedImage, Error>
-            do { outcome = .success(try await Playground.evaluate(data: data, recipe: recipe, fitting: fitting)) }
+            do { outcome = .success(try await Playground.evaluate(data: data, recipe: recipe, fitting: fitting, pictures: pictures, second: second)) }
             catch { outcome = .failure(error) }
             guard let self, !Task.isCancelled, self.revision == rev else { return }   // late native work must not publish
             switch outcome {
@@ -208,10 +215,19 @@ public final class Playground {
     /// Waits for the scheduled evaluation to finish (used by tests).
     public func settle() async { await renderTask?.value }
 
-    nonisolated static func evaluate(data: Data, recipe: Recipe, fitting: Int?) async throws -> RenderedImage {
+    nonisolated static func evaluate(data: Data, recipe: Recipe, fitting: Int?, pictures: (@Sendable (String) -> Data?)? = nil, second: Data? = nil) async throws -> RenderedImage {
         let started = ContinuousClock.now
         let source = try Hokusai(data: data)
-        let compiled = try RecipeCompiler.compile(recipe, source: source, fitting: fitting)
+        let assets: RecipeCompiler.Assets = { name in
+            if name == "second" {
+                guard let second else { throw RecipeError.invalidParameter(operation: "image", name: "picture", reason: "“My second image” needs a second image: choose one in the inspector") }
+                return try Hokusai(data: second)
+            }
+            guard let data = pictures?(name) else { throw RecipeError.invalidParameter(operation: "image", name: "picture", reason: "unknown picture '\(name)'") }
+            return try Hokusai(data: data)
+        }
+        let sizes = RecipeSizing.needsSizes(recipe) ? try await RecipeSizing.resolve(recipe, source: source, assets: assets) : [:]
+        let compiled = try RecipeCompiler.compile(recipe, source: source, fitting: fitting, assets: assets, sizes: sizes)
         let output = try await compiled.pipeline.data()
         let elapsed = ContinuousClock.now - started
         return RenderedImage(data: output.data, width: output.info.width, height: output.info.height, mime: compiled.mime,
@@ -222,7 +238,7 @@ public final class Playground {
     /// The export: the unchanged recipe on the original, never the preview.
     public func exportData() async throws -> (data: Data, fileExtension: String, image: RenderedImage) {
         guard let data = sourceData else { throw PlaygroundError.noImage }
-        let image = try await Playground.evaluate(data: data, recipe: recipe, fitting: nil)
+        let image = try await Playground.evaluate(data: data, recipe: recipe, fitting: nil, pictures: pictures, second: secondImage)
         let ext = Catalog.outputs.first { $0.format == recipe.output.format }?.fileExtension ?? "bin"
         return (image.data, ext, image)
     }

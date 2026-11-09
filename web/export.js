@@ -23,7 +23,7 @@ export function initExport(container, ctx) {
       if (!state.upload) { out.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
       run.disabled = true; out.replaceChildren(el("p", { className: "muted", textContent: "Encoding with every encoder…" }));
       try {
-        const res = await fetch("/api/compare", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), page: state.page || null }) });
+        const res = await fetch("/api/compare", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), page: state.page || null, assets: state.assets }) });
         if (!res.ok) throw await apiError(res);
         const { rows, scaledTo } = await res.json();
         const smallest = Math.min(...rows.filter((r) => r.ok).map((r) => r.bytes));
@@ -88,7 +88,7 @@ export function initExport(container, ctx) {
     const download = el("button", { type: "button", className: "btn primary", textContent: "Download PDF" });
     download.onclick = async () => {
       if (!state.upload) return;
-      const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: pdfRecipe() }) });
+      const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: pdfRecipe(), assets: state.assets }) });
       if (!res.ok) { facts.replaceChildren(el("p", { className: "status error", textContent: (await apiError(res)).message })); return; }
       const a = el("a", { href: URL.createObjectURL(await res.blob()), download: `${(state.upload.name || "image").replace(/\.[^.]+$/, "")}.pdf` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
