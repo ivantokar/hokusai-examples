@@ -1,6 +1,6 @@
 # Hokusai examples
 
-Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift library for server-side image processing built on libvips. Open an image, build an ordered pipeline, see the result, and copy the Swift that reproduces it. Documentation: <https://ivantokar.com/oss/hokusai/>.
+Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift library for server-side image processing built on libvips. Open an image, build an ordered pipeline, see the result, and copy the Swift that reproduces it. Documentation: <https://ivantokar.com/oss/hokusai/>; a step-by-step guide to running, testing and adopting these demos is at <https://ivantokar.com/oss/hokusai/integrations/examples/>.
 
 | What | Where | Status |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ cd vapor-server && swift run App          # http://127.0.0.1:8081
 cd hummingbird-server && swift run App    # http://127.0.0.1:8082
 ```
 
-Needs Swift 6.0+ and libvips 8.16+. Environment variables: `PORT`, `HOST`, `WEB_ROOT` (default `../web`), `FIXTURES_ROOT` (default `../fixtures`), `HOKUSAI_MAX_CONCURRENT` (default 2) and `HOKUSAI_MAX_QUEUED` (default 2). The two Hokusai limits are small on purpose, so the Runtime Lab can show a queue filling and rejecting; Hokusai freezes them at the first image, so change them by restarting.
+Needs Swift 6.2+ (the Docker image builds with 6.2; macOS CI uses 6.4) and libvips 8.16+. Run from inside the server folder: the web files and samples are found relative to it. Environment variables: `PORT`, `HOST`, `WEB_ROOT` (default `../web`), `FIXTURES_ROOT` (default `../fixtures`), `HOKUSAI_MAX_CONCURRENT` (default 2) and `HOKUSAI_MAX_QUEUED` (default 2). The two Hokusai limits are small on purpose, so the Runtime Lab can show a queue filling and rejecting; Hokusai freezes them at the first image, so change them by restarting.
 
 ### The macOS app
 
