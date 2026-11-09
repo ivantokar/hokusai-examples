@@ -20,7 +20,7 @@ const state = {
   history: [], future: [],
   full: false,             // render the result at its real size instead of fitting the preview
   view: "result", lastGood: null, resultUrl: null,
-  target: "core", tab: "swift", codeText: "", facts: {},
+  section: "playground", target: "core", tab: "swift", codeText: "", facts: {},
 };
 
 const ops = () => new Map(state.catalog.operations.map((o) => [o.id, o]));
@@ -90,14 +90,14 @@ function edit(mutator) {
 }
 function undo() { if (!state.history.length) return; state.future.push(clone(state.recipe)); state.recipe = state.history.pop(); fixSelection(); changed(true); }
 function redo() { if (!state.future.length) return; state.history.push(clone(state.recipe)); state.recipe = state.future.pop(); fixSelection(); changed(true); }
-function fixSelection() { if (!state.recipe.steps.some((s) => s.id === state.selected)) state.selected = null; }
+function fixSelection() { if (!state.recipe.steps.some((s) => s.id === state.selected)) state.selected = null; syncCropButton(); }
 
 function changed(rerenderPanels) {
-  state.revision++;
+  state.revision++; fixSelection();
   $("undo").disabled = !state.history.length; $("redo").disabled = !state.future.length;
   if (rerenderPanels) { drawSteps(); drawSettings(); drawOutput(); }
   else { drawSteps(); drawOutput(); }
-  scheduleRender(); scheduleCode();
+  scheduleRender(); scheduleCode(); scheduleCropBase(); scheduleInspect();
 }
 
 // ---------- pipeline list ----------
@@ -129,7 +129,10 @@ function drawSteps() {
     return li;
   }));
 }
-function select(id) { state.selected = id; drawSteps(); drawSettings(); }
+function select(id) {
+  state.selected = id; drawSteps(); drawSettings(); syncCropButton();
+  if (selectedCrop()) { setView("crop"); ensureCropBase(); }
+}
 function move(id, delta) { const i = state.recipe.steps.findIndex((s) => s.id === id); const j = i + delta; if (j < 0 || j >= state.recipe.steps.length) return; moveTo(id, j); }
 function moveTo(id, j) { edit((r) => { const i = r.steps.findIndex((s) => s.id === id); const [s] = r.steps.splice(i, 1); r.steps.splice(j, 0, s); }); focusStep(id); }
 function duplicate(id) { const copy = uid(); edit((r) => { const i = r.steps.findIndex((s) => s.id === id); r.steps.splice(i + 1, 0, { ...clone(r.steps[i]), id: copy }); }); state.selected = copy; drawSteps(); drawSettings(); }
@@ -156,6 +159,7 @@ function drawAddList(filter = "") {
 }
 function addStep(opId) {
   const id = uid();
+  if (opId === "crop") crop.fresh.add(id);
   edit((r) => { r.steps.push({ id, op: opId, enabled: true, params: {} }); });
   $("add-list").hidden = true; $("add-search").value = "";
   select(id);
@@ -172,6 +176,7 @@ function drawSettings() {
   if (spec.previewNote) nodes.push(el("p", { className: "note", textContent: spec.previewNote }));
   nodes.push(...common.map((p) => field(p, step.params, (v) => setParam(step.id, p, v))));
   if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => setParam(step.id, p, v)))));
+  if (step.op === "crop") nodes.push(cropControls(step));
   if (spec.params.length) { const r = el("button", { type: "button", className: "btn small", textContent: "Reset to defaults" }); r.onclick = () => { edit((rr) => { rr.steps.find((s) => s.id === step.id).params = {}; }); drawSettings(); }; nodes.push(r); }
   box.replaceChildren(...nodes);
 }
@@ -196,6 +201,7 @@ function field(p, params, onChange) {
     const num = el("input", { type: "number", id, value, min: p.min ?? "", max: p.max ?? "", step: p.step ?? (p.kind === "integer" ? 1 : "any") });
     const range = (p.min != null && p.max != null && p.max - p.min <= 100000) ? el("input", { type: "range", min: p.min, max: p.max, step: p.step ?? 1, value, tabIndex: -1 }) : null;
     range?.setAttribute("aria-hidden", "true");
+    num.dataset.param = p.name; if (range) range.dataset.param = p.name;
     const commit = (raw) => { const n = Number(raw); if (Number.isFinite(n) && raw !== "") onChange(n); };
     num.oninput = () => { if (range) range.value = num.value; commit(num.value); };
     if (range) range.oninput = () => { num.value = range.value; commit(range.value); };
@@ -276,12 +282,15 @@ async function render(retry = true) {
 function recipeForServer() { return clone(state.recipe); }
 
 function showImage() {
-  const img = $("image");
-  const src = state.view === "original" ? state.originalUrl : state.resultUrl;
-  if (!src) { img.hidden = true; return; }
-  img.src = src; img.hidden = false;
-  img.alt = state.view === "original" ? "Original image" : "Result of the current pipeline";
-  if (state.view === "result" && state.lastGood && state.zoom100) { img.style.width = state.lastGood.width + "px"; } else img.style.width = "";
+  const img = $("image"), wrap = $("imgwrap");
+  const src = state.view === "original" ? state.originalUrl : state.view === "crop" ? crop.base?.url : state.resultUrl;
+  if (!src) { wrap.hidden = true; return; }
+  if (img.getAttribute("src") !== src) img.src = src;
+  wrap.hidden = false;
+  img.alt = state.view === "original" ? "Original image" : state.view === "crop" ? "The image entering the crop step" : "Result of the current pipeline";
+  const natural = state.view === "result" && state.lastGood ? state.lastGood.width : state.view === "crop" && crop.base ? crop.base.w : null;
+  img.style.width = state.zoom100 && natural ? natural + "px" : "";
+  drawCrop();
 }
 
 // ---------- code ----------
@@ -355,8 +364,10 @@ function wire() {
   $("reset").onclick = () => edit((r) => { r.steps = []; r.output = { format: "webp", options: {} }; });
   $("export").onclick = doExport;
   $("accurate").onclick = () => { state.full = !state.full; $("accurate").textContent = state.full ? "Fit preview" : "Full size"; changed(false); };
-  const view = (v) => { state.view = v; $("show-result").classList.toggle("on", v === "result"); $("show-original").classList.toggle("on", v === "original"); $("show-result").setAttribute("aria-pressed", v === "result"); $("show-original").setAttribute("aria-pressed", v === "original"); showImage(); };
-  $("show-result").onclick = () => view("result"); $("show-original").onclick = () => view("original");
+  $("show-result").onclick = () => setView("result"); $("show-original").onclick = () => setView("original"); $("show-crop").onclick = () => setView("crop");
+  $("nav-play").onclick = () => setSection("playground"); $("nav-inspect").onclick = () => setSection("inspect");
+  $("image").addEventListener("load", drawCrop); window.addEventListener("resize", drawCrop);
+  wireCrop();
   const zoom = (z) => { state.zoom100 = z; $("canvas").classList.toggle("actual", z); $("zoom-fit").classList.toggle("on", !z); $("zoom-100").classList.toggle("on", z); $("zoom-fit").setAttribute("aria-pressed", !z); $("zoom-100").setAttribute("aria-pressed", z); showImage(); };
   $("zoom-fit").onclick = () => zoom(false); $("zoom-100").onclick = () => zoom(true);
   const search = $("add-search");
@@ -381,3 +392,192 @@ function wire() {
 }
 
 connect().then(() => { wire(); drawOutput(); drawSteps(); drawSettings(); loadCode(); drawCode(); }).catch(() => {});
+
+// ---------- sections ----------
+function setSection(name) {
+  state.section = name;
+  $("stage").hidden = name !== "playground"; $("inspect").hidden = name !== "inspect";
+  for (const [id, n] of [["nav-play", "playground"], ["nav-inspect", "inspect"]]) { $(id).classList.toggle("active", name === n); if (name === n) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current"); }
+  if (name === "inspect") { loadInspect(); }
+}
+
+function setView(v) {
+  state.view = v;
+  for (const [id, n] of [["show-result", "result"], ["show-original", "original"], ["show-crop", "crop"]]) { $(id).classList.toggle("on", v === n); $(id).setAttribute("aria-pressed", v === n); }
+  showImage();
+  if (v === "crop") ensureCropBase();
+}
+
+// ---------- inspect ----------
+let inspectTimer = null, inspectRev = 0;
+function scheduleInspect() { if (state.section !== "inspect" || !state.upload) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
+async function loadInspect() {
+  if (!state.upload) { $("inspect-body").replaceChildren(el("p", { className: "empty", textContent: "Open an image to inspect it." })); return; }
+  const rev = ++inspectRev;
+  try {
+    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe }) });
+    if (!res.ok) throw await apiError(res);
+    const data = await res.json(); if (rev !== inspectRev) return;
+    drawInspect(data);
+  } catch (e) { if (rev === inspectRev) $("inspect-body").replaceChildren(el("p", { className: "status error", textContent: e.message })); }
+}
+function drawInspect({ source, output, outputFormat }) {
+  const block = (name, src, out) => {
+    const text = out == null ? (src ? `${src} B` : "absent") : (out ? `${out} B` : "absent");
+    let pill = null;
+    if (out != null) { if (src && !out) pill = ["removed", "removed"]; else if (src && out) pill = ["kept", "kept"]; else if (!src && out) pill = ["added", "added"]; }
+    return [name, text, pill];
+  };
+  const rows = (f, other) => [
+    ["Format", f.format ?? "unknown"],
+    ["Stored size", `${f.width} × ${f.height}`],
+    ["Upright size", `${f.orientedWidth} × ${f.orientedHeight}` + (f.orientedWidth !== f.width ? " (orientation swaps the sides)" : "")],
+    ["Orientation tag", f.orientation == null ? "none" : String(f.orientation)],
+    ["Colour", `${f.channels} channel${f.channels === 1 ? "" : "s"}${f.hasAlpha ? " including alpha" : ""}, ${f.interpretation}`],
+    ["Samples", `${f.sampleFormat}${f.bitsPerSample ? `, ${f.bitsPerSample}-bit` : ""}${f.isPalette ? ", palette" : ""}`],
+    ["Density", f.density ?? "none"],
+    ["Pages", `${f.pages}${f.animated ? `, animated (${f.frames ?? "?"} frames)` : ""}`],
+    ["File size", fmtBytes(f.bytes)],
+    ...(f.progressive == null ? [] : [["Progressive", f.progressive ? "yes" : "no"]]),
+    block("EXIF block", source.exifBytes, other ? f.exifBytes : null), block("ICC profile", source.iccBytes, other ? f.iccBytes : null),
+    block("XMP", source.xmpBytes, other ? f.xmpBytes : null), block("IPTC", source.iptcBytes, other ? f.iptcBytes : null),
+  ];
+  const table = (title, f, other) => {
+    const t = el("table", {}, el("caption", { textContent: title }));
+    for (const [k, v, pill] of rows(f, other)) t.append(el("tr", {}, el("th", { scope: "row", textContent: k }), el("td", {}, v, ...(pill ? [el("span", { className: "pill " + pill[0], textContent: pill[1] })] : []))));
+    return t;
+  };
+  $("inspect-body").replaceChildren(
+    table(`Source: ${state.upload.name}`, source, false),
+    table(`Exported output (${outputFormat}), encoded and read back`, output, true),
+    el("p", { className: "note", textContent: "Orientation and density are stored inside an EXIF block, so a small EXIF block can remain while camera details are gone. An embedded ICC profile is not a colour conversion: the pixels are not changed by it. The right column is measured on the exported bytes, not inferred from the settings." }),
+  );
+}
+
+// ---------- crop editor ----------
+// The rectangle is edited on the image that ENTERS the crop step, rendered by the server with the steps before it,
+// so its coordinates are exactly the ones the extract call receives, whatever rotate or resize came first.
+const crop = { fresh: new Set(), base: null, rev: 0, ratioKey: "free", timer: null, drag: null, ctrl: null };
+const RATIOS = { free: 0, "1:1": 1, "4:3": 4 / 3, "3:2": 3 / 2, "16:9": 16 / 9 };
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+function selectedCrop() { const s = state.recipe.steps.find((x) => x.id === state.selected); return s && s.op === "crop" ? s : null; }
+function syncCropButton() { const c = selectedCrop(); $("show-crop").hidden = !c; if (!c && state.view === "crop") setView("result"); }
+function cropRect(step) {
+  const v = (n) => (n in step.params ? step.params[n] : ops().get("crop").params.find((p) => p.name === n).default);
+  return { x: v("x"), y: v("y"), w: v("width"), h: v("height") };
+}
+function cropSignature(step) {
+  const i = state.recipe.steps.findIndex((s) => s.id === step.id);
+  return JSON.stringify([state.upload?.uploadId, step.id, state.recipe.steps.slice(0, i).filter((s) => s.enabled).map((s) => [s.op, s.params])]);
+}
+function scheduleCropBase() { if (!selectedCrop()) return; clearTimeout(crop.timer); crop.timer = setTimeout(ensureCropBase, 200); }
+async function ensureCropBase() {
+  const step = selectedCrop(); if (!step || !state.upload) return;
+  const sig = cropSignature(step);
+  if (crop.base?.sig === sig) { drawCrop(); return; }
+  const rev = ++crop.rev; crop.ctrl?.abort(); crop.ctrl = new AbortController();
+  try {
+    const recipe = clone(state.recipe); recipe.output = { format: "webp", options: { quality: 90 } };
+    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id }) });
+    if (!res.ok) throw await apiError(res);
+    const blob = await res.blob(); if (rev !== crop.rev) return;
+    if (crop.base?.url) URL.revokeObjectURL(crop.base.url);
+    crop.base = { sig, url: URL.createObjectURL(blob), w: +res.headers.get("x-hokusai-width"), h: +res.headers.get("x-hokusai-height") };
+    // A crop that was just added starts as the whole image entering it, so it is valid at once and the
+    // handles have something to shrink. This only touches a step nobody has edited yet.
+    if (crop.fresh.delete(step.id) && !Object.keys(step.params).length) {
+      step.params = { width: crop.base.w, height: crop.base.h };
+      changed(true);
+    }
+    showImage();
+  } catch (e) { if (e.name !== "AbortError" && rev === crop.rev) { crop.base = null; setStatus(`Cannot show the image entering the crop: ${e.message}`, "error"); showImage(); } }
+}
+
+function drawCrop() {
+  const box = $("crop"), step = selectedCrop(), img = $("image");
+  if (state.view !== "crop" || !step || !crop.base || !img.clientWidth) { box.hidden = true; return; }
+  const { x, y, w, h } = cropRect(step), W = crop.base.w, H = crop.base.h, k = img.clientWidth / W;
+  const valid = x + w <= W && y + h <= H;
+  const cx = clamp(x, 0, W), cy = clamp(y, 0, H), cw = clamp(w, 1, W - cx), ch = clamp(h, 1, H - cy);
+  Object.assign(box.style, { left: cx * k + "px", top: cy * k + "px", width: cw * k + "px", height: ch * k + "px" });
+  box.classList.toggle("invalid", !valid);
+  box.hidden = false;
+  if (!valid) setStatus(`The crop (${x}, ${y}, ${w} × ${h}) reaches outside the ${W} × ${H} image entering this step. It is not moved for you: edit the rectangle or an earlier step.`, "error");
+  else setStatus(`Editing the crop on the ${W} × ${H} image entering this step: ${w} × ${h} at (${x}, ${y}).`);
+}
+
+function setParams(stepId, values) {
+  const key = stepId + "/" + Object.keys(values).join(",");
+  if (coalesce !== key) { state.history.push(clone(state.recipe)); state.future = []; coalesce = key; }
+  clearTimeout(setParam.t); setParam.t = setTimeout(() => { coalesce = null; }, 600);
+  const step = state.recipe.steps.find((s) => s.id === stepId), spec = ops().get(step.op);
+  for (const [name, v] of Object.entries(values)) { const p = spec.params.find((q) => q.name === name); if (v === p.default) delete step.params[name]; else step.params[name] = v; }
+  for (const input of document.querySelectorAll("#settings [data-param]")) if (input.dataset.param in values && document.activeElement !== input) input.value = values[input.dataset.param];
+  changed(false);
+}
+function setCropRect(step, r) { setParams(step.id, { x: Math.round(r.x), y: Math.round(r.y), width: Math.max(1, Math.round(r.w)), height: Math.max(1, Math.round(r.h)) }); }
+
+function ratioValue(step) {
+  if (crop.ratioKey === "original" && crop.base) return crop.base.w / crop.base.h;
+  return RATIOS[crop.ratioKey] ?? 0;
+}
+
+// Pure geometry, so it can be reasoned about: the new rectangle for a drag of `mode` by (dx, dy) image pixels.
+function dragRect(mode, r0, dx, dy, W, H, ratio) {
+  if (mode === "move") return { x: clamp(r0.x + dx, 0, Math.max(0, W - r0.w)), y: clamp(r0.y + dy, 0, Math.max(0, H - r0.h)), w: r0.w, h: r0.h };
+  let l = r0.x, t = r0.y, r = r0.x + r0.w, b = r0.y + r0.h;
+  if (mode.includes("w")) l = clamp(l + dx, 0, r - 1);
+  if (mode.includes("e")) r = clamp(r + dx, l + 1, W);
+  if (mode.includes("n")) t = clamp(t + dy, 0, b - 1);
+  if (mode.includes("s")) b = clamp(b + dy, t + 1, H);
+  if (!ratio) return { x: l, y: t, w: r - l, h: b - t };
+  let w = r - l, h = b - t;
+  const corner = mode.length === 2, vertical = mode === "n" || mode === "s";
+  if (vertical || (corner && Math.abs(dy) > Math.abs(dx))) w = h * ratio; else h = w / ratio;
+  const cx = r0.x + r0.w / 2, cy = r0.y + r0.h / 2;
+  // room available on each axis, given which edge stays put
+  const roomW = mode.includes("w") ? r0.x + r0.w : mode.includes("e") ? W - r0.x : 2 * Math.min(cx, W - cx);
+  const roomH = mode.includes("n") ? r0.y + r0.h : mode.includes("s") ? H - r0.y : 2 * Math.min(cy, H - cy);
+  const f = Math.min(1, roomW / w, roomH / h); w *= f; h *= f;
+  const x = mode.includes("w") ? r0.x + r0.w - w : mode.includes("e") ? r0.x : cx - w / 2;
+  const y = mode.includes("n") ? r0.y + r0.h - h : mode.includes("s") ? r0.y : cy - h / 2;
+  return { x, y, w, h };
+}
+
+function wireCrop() {
+  const box = $("crop");
+  box.addEventListener("pointerdown", (e) => {
+    const step = selectedCrop(); if (!step || !crop.base) return;
+    box.setPointerCapture(e.pointerId);
+    crop.drag = { mode: e.target.dataset.h || "move", sx: e.clientX, sy: e.clientY, r0: cropRect(step), step };
+    e.preventDefault();
+  });
+  box.addEventListener("pointermove", (e) => {
+    const d = crop.drag; if (!d || !crop.base) return;
+    const k = $("image").clientWidth / crop.base.w;
+    setCropRect(d.step, dragRect(d.mode, d.r0, (e.clientX - d.sx) / k, (e.clientY - d.sy) / k, crop.base.w, crop.base.h, ratioValue(d.step)));
+  });
+  const end = () => { crop.drag = null; };
+  box.addEventListener("pointerup", end); box.addEventListener("pointercancel", end);
+  box.addEventListener("keydown", (e) => {
+    const step = selectedCrop(); if (!step || !crop.base) return;
+    const n = e.shiftKey ? 10 : 1, r = cropRect(step);
+    const d = { ArrowLeft: [-n, 0], ArrowRight: [n, 0], ArrowUp: [0, -n], ArrowDown: [0, n] }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    setCropRect(step, dragRect("move", r, d[0], d[1], crop.base.w, crop.base.h, 0));
+  });
+}
+
+function cropControls(step) {
+  const sel = el("select", { id: "crop-ratio" }, ...Object.keys(RATIOS).map((k) => el("option", { value: k, textContent: k === "free" ? "Free" : k, selected: k === crop.ratioKey })), el("option", { value: "original", textContent: "Original", selected: crop.ratioKey === "original" }));
+  sel.onchange = () => {
+    crop.ratioKey = sel.value; const ratio = ratioValue(step);
+    if (ratio && crop.base) { const r = cropRect(step); setCropRect(step, dragRect("se", r, 0, 0, crop.base.w, crop.base.h, ratio)); }
+  };
+  const full = el("button", { type: "button", className: "btn small", textContent: "Whole image" });
+  full.onclick = () => { if (crop.base) setCropRect(step, { x: 0, y: 0, w: crop.base.w, h: crop.base.h }); };
+  return el("div", { className: "field" }, el("label", { htmlFor: "crop-ratio" }, "Aspect ratio"), el("div", { className: "row" }, sel, full),
+    el("div", { className: "help", textContent: "Drag on the Crop view, or use the arrow keys on the rectangle, or type exact numbers above." }));
+}

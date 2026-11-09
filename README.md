@@ -8,7 +8,8 @@ Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift libr
 | The same playground served by a **Hummingbird** backend ([Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird)) | [`hummingbird-server/`](hummingbird-server) | works |
 | Shared recipes, operation catalog, Swift code generator, bounded upload store | [`recipes/`](recipes) | works |
 | Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) | works |
-| Inspect, Export/PDF and Runtime Lab views | | planned |
+| Inspect view (source facts and metadata verified on exported bytes) | web | works |
+| Export/PDF and Runtime Lab views | | planned |
 
 Both backends serve **one** web UI and answer the **same** HTTP API, so you can compare how each integration behaves. The active backend is shown in the top bar.
 
@@ -74,7 +75,8 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 | `GET /api/capabilities` | libvips and Cairo versions, readable and writable formats |
 | `GET /api/status` | running and queued evaluations, stored uploads |
 | `POST /api/uploads` (raw body) | `{ uploadId, width, height, orientedWidth, … }` |
-| `POST /api/render` `{ uploadId, recipe, previewMaxEdge? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers |
+| `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
+| `POST /api/inspect` `{ uploadId, recipe? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
 | `POST /api/code` `{ recipe, target }` | `{ code }` |
 | `POST /api/minimal/resize?width=` (raw body) | the minimal integration |
 
@@ -112,7 +114,7 @@ Never commit an edited checkout.
 ## Known limitations
 
 - macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
-- Crop is a numeric rectangle; on-canvas crop, image layers and masks, split compare, and switching between two running backends are planned.
+- Image layers and masks, split compare, and switching between two running backends are planned. The macOS app has numeric crop only.
 - The playground previews at 1280 px; there is no downsampled-input fast path yet, because it is not equivalent for blur, trim, text and geometry steps.
 - Multi-architecture images are not claimed: build and test on the architecture you run.
 - Fonts: the Docker image bundles DejaVu (free licence) for text; native runs use your system fonts.

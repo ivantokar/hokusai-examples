@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-25 implemented, 11 partial, 23 planned, 59 in total.
+28 implemented, 9 partial, 22 planned, 59 in total.
 
 
 ## Sources
@@ -27,7 +27,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Rotate | `rotate(by:)` | implemented | Playground. |
 | Flip (vertical) | `flip(), flop()` | implemented | Playground. |
 | Flop (horizontal) | `flop()` | implemented | Playground. |
-| Crop (extract) | `extract(x:y:width:height:)` | partial | Playground: numeric rectangle; on-canvas crop planned. |
+| Crop (extract) | `extract(x:y:width:height:)` | implemented | Playground: on-canvas rectangle with handles, keyboard and numeric entry, fixed aspect ratios; edited on the image entering the step. |
 | Smart crop | `smartCrop(width:height:strategy:)` | implemented | Playground. |
 | Extend (canvas) | `extend(...)` | planned | Playground. |
 | Affine | `affine(...)` | planned | Playground. |
@@ -94,8 +94,8 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Source inspection | `metadata()` | partial | Upload response shows dimensions, oriented size and format; full Inspect lab planned. |
-| Output metadata retention | `metadata(_:)` | planned | Export / PDF view, verified on the exported bytes. |
+| Source inspection | `metadata()` | implemented | Inspect view: dimensions, orientation, pixel model, density, pages, animation and embedded-block sizes. |
+| Output metadata retention | `metadataPolicy(_:)` | implemented | Output panel (granular keep EXIF/ICC/XMP/IPTC/other/orientation/density) and Inspect view, verified on the exported bytes. |
 
 ## Raw and pages
 

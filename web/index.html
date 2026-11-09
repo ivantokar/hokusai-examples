@@ -12,9 +12,9 @@
   <header class="topbar">
     <div class="brand"><span class="mark" aria-hidden="true"></span><strong>Hokusai</strong> <span class="muted">examples</span></div>
     <nav aria-label="Demo sections" class="nav">
-      <button class="tab active" aria-current="page">Playground</button>
+      <button class="tab active" id="nav-play" aria-current="page">Playground</button>
       <button class="tab" id="nav-recipes" aria-haspopup="true">Recipes</button>
-      <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Inspect</button>
+      <button class="tab" id="nav-inspect">Inspect</button>
       <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Export / PDF</button>
       <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Runtime Lab</button>
     </nav>
@@ -34,6 +34,7 @@
     <div class="seg" role="group" aria-label="Compare">
       <button id="show-result" class="on" aria-pressed="true">Result</button>
       <button id="show-original" aria-pressed="false">Original</button>
+      <button id="show-crop" aria-pressed="false" hidden title="Edit the crop rectangle on the image that enters this step">Crop</button>
     </div>
     <div class="seg" role="group" aria-label="Zoom">
       <button id="zoom-fit" class="on" aria-pressed="true">Fit</button>
@@ -58,7 +59,7 @@
       <div id="output"></div>
     </aside>
 
-    <section class="stage" aria-label="Preview">
+    <section class="stage" id="stage" aria-label="Preview">
       <div class="canvas" id="canvas">
         <div class="viewport" id="viewport">
           <div class="empty-state" id="empty-state">
@@ -66,11 +67,24 @@
             <p>Drop an image here, open one, or start from a sample. The server runs the same public Swift API you would call in your app.</p>
             <div class="samples" id="empty-samples"></div>
           </div>
-          <img id="image" alt="Result of the current pipeline" hidden>
+          <div class="imgwrap" id="imgwrap" hidden>
+            <img id="image" alt="Result of the current pipeline">
+            <div class="crop" id="crop" hidden role="group" aria-label="Crop rectangle. Arrow keys move it by one pixel, hold Shift for ten." tabindex="0">
+              <i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i>
+            </div>
+          </div>
         </div>
         <div class="badge" id="updating" hidden>Updating…</div>
       </div>
       <div class="status" id="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="inspect" id="inspect" aria-label="Inspect" hidden>
+      <div class="inspect-head">
+        <h1>Inspect</h1>
+        <p class="muted">Facts read back from the original upload and from the bytes the current recipe really exports. Change the output metadata settings on the left and watch the right column.</p>
+      </div>
+      <div id="inspect-body" class="inspect-grid"></div>
     </section>
 
     <aside class="panel right" aria-label="Settings">

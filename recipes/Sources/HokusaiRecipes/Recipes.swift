@@ -16,7 +16,7 @@ public enum Catalog {
     }
 
     public static var outputs: [OutputSpec] {
-        allOutputs.map { OutputSpec(format: $0.format, title: $0.title, mime: $0.mime, fileExtension: $0.fileExtension, params: $0.params) }
+        allOutputs.map { OutputSpec(format: $0.format, title: $0.title, mime: $0.mime, fileExtension: $0.fileExtension, params: $0.params + metadataParams) }
     }
 }
 
@@ -42,7 +42,8 @@ public enum RecipeCompiler {
         // A display-size copy of the *result*; the recipe itself is untouched, so it stays accurate.
         if let maxEdge { pipeline = try pipeline.resize(width: maxEdge, height: maxEdge, fit: .inside, withoutEnlargement: true) }
         let out = outputs[recipe.output.format]!
-        pipeline = try out.apply(pipeline, try Params(operation: recipe.output.format, specs: out.params, values: recipe.output.options))
+        let outParams = try Params(operation: recipe.output.format, specs: out.params + metadataParams, values: recipe.output.options)
+        pipeline = try out.apply(applyMetadata(pipeline, outParams), outParams)
         return CompiledRecipe(pipeline: pipeline, mime: out.mime, fileExtension: out.fileExtension)
     }
 
@@ -54,7 +55,7 @@ public enum RecipeCompiler {
             _ = try Params(operation: step.op, specs: def.spec.params, values: step.params)
         }
         guard let out = outputs[recipe.output.format] else { throw RecipeError.unknownFormat(recipe.output.format) }
-        _ = try Params(operation: recipe.output.format, specs: out.params, values: recipe.output.options)
+        _ = try Params(operation: recipe.output.format, specs: out.params + metadataParams, values: recipe.output.options)
     }
 }
 
@@ -73,7 +74,9 @@ public enum SwiftCodeGenerator {
             lines.append(def.swift(try Params(operation: step.op, specs: def.spec.params, values: step.params)))
         }
         let out = outputs[recipe.output.format]!
-        lines.append(out.swift(try Params(operation: recipe.output.format, specs: out.params, values: recipe.output.options)))
+        let outParams = try Params(operation: recipe.output.format, specs: out.params + metadataParams, values: recipe.output.options)
+        if let policy = metadataSwift(outParams) { lines.append(policy) }
+        lines.append(out.swift(outParams))
         return lines
     }
 

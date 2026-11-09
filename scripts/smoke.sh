@@ -55,6 +55,21 @@ code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$base/api/render" -d "{
 [ "$code" = "422" ] || fail "out-of-bounds crop gave $code, expected 422"
 ok "errors: expired upload 404, non-image 422, invalid crop $code"
 
+# The crop editor asks for the image that ENTERS a step: sizes must match the coordinates the crop uses.
+crop='{"version":1,"steps":[{"id":"a","op":"autoOrient"},{"id":"b","op":"resize","params":{"width":400,"fit":"inside"}},{"id":"c","op":"rotate","params":{"degrees":90}},{"id":"d","op":"crop","params":{"x":10,"y":20,"width":100,"height":120}}],"output":{"format":"webp"}}'
+eh="$(curl -fsS -D- -o /dev/null -X POST "$base/api/render" -d "{\"uploadId\":\"$id\",\"stopBefore\":\"d\",\"recipe\":$crop}" | tr -d '\r')"
+echo "$eh" | grep -qi "^x-hokusai-width: 250" && echo "$eh" | grep -qi "^x-hokusai-height: 400" || fail "image entering the crop is not 250 x 400"
+fh="$(curl -fsS -D- -o /dev/null -X POST "$base/api/render" -d "{\"uploadId\":\"$id\",\"recipe\":$crop}" | tr -d '\r')"
+echo "$fh" | grep -qi "^x-hokusai-width: 100" && echo "$fh" | grep -qi "^x-hokusai-height: 120" || fail "export does not match the crop rectangle"
+ok "crop coordinates agree with the image entering the step"
+
+# Metadata retention is read back from the exported bytes, never assumed from the settings.
+mid="$(curl -fsS --data-binary @"$here/fixtures/metadata.jpg" "$base/api/uploads" | json 'd["uploadId"]')"
+inspect() { curl -fsS -X POST "$base/api/inspect" -d "{\"uploadId\":\"$mid\",\"recipe\":{\"version\":1,\"steps\":[],\"output\":{\"format\":\"jpeg\",\"options\":$1}}}"; }
+inspect '{}' | json 'd["source"]["xmpBytes"] > 0 and d["source"]["iptcBytes"] > 0 and d["output"]["xmpBytes"] == 0 and d["output"]["iptcBytes"] == 0 and d["output"]["iccBytes"] > 0' | grep -q True || fail "default policy should keep ICC and drop XMP/IPTC"
+inspect '{"keepXmp":true,"keepIptc":true,"keepIcc":false}' | json 'd["output"]["xmpBytes"] > 0 and d["output"]["iptcBytes"] > 0 and d["output"]["iccBytes"] == 0' | grep -q True || fail "granular policy was not honoured in the exported bytes"
+ok "metadata policy verified on exported bytes"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

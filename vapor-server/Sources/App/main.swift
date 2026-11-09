@@ -54,6 +54,13 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
     routes.post("code") { req async -> Response in
         do { return json(try api.code(body(req))) } catch { return fail(error) }
     }
+    routes.post("inspect") { req async -> Response in
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        do {
+            let body = try JSONDecoder().decode(Body.self, from: body(req))
+            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+        } catch { return fail(error) }
+    }
     routes.post("render") { req async -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(body(req)))
@@ -87,7 +94,7 @@ func configure(_ app: Application) throws {
     app.middleware.use(FileMiddleware(publicDirectory: root, defaultFile: "index.html"))
     app.get("samples", ":name") { req async throws -> Response in
         let name = try req.parameters.require("name")
-        guard ["scene.png", "phone.jpg", "emblem.png", "mask.png"].contains(name) else { throw Abort(.notFound) }
+        guard DemoAPI.sampleNames.contains(name) else { throw Abort(.notFound) }
         return try await req.fileio.asyncStreamFile(at: "\(fixtures)/\(name)")
     }
     app.http.server.configuration.hostname = Environment.get("HOST") ?? "127.0.0.1"

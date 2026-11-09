@@ -77,6 +77,13 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     apiRoutes.post("code") { request, _ -> Response in
         do { return jsonResponse(try api.code(try await collect(request, limit: 1 << 20))) } catch { return failure(error) }
     }
+    apiRoutes.post("inspect") { request, _ -> Response in
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        do {
+            let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
+            return jsonResponse(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+        } catch { return failure(error) }
+    }
     apiRoutes.post("render") { request, _ -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(try await collect(request, limit: 1 << 20)))
@@ -92,7 +99,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     // The sample images are plain files shared by both backends.
     router.get("samples/:name") { _, context -> Response in
         let name = try context.parameters.require("name")
-        guard ["scene.png", "phone.jpg", "emblem.png", "mask.png"].contains(name),
+        guard DemoAPI.sampleNames.contains(name),
               let data = FileManager.default.contents(atPath: "\(fixturesRoot)/\(name)") else { throw HTTPError(.notFound) }
         let type = name.hasSuffix(".jpg") ? "image/jpeg" : "image/png"
         return Response(status: .ok, headers: [.contentType: type, .cacheControl: "public, max-age=3600"], body: .init(byteBuffer: ByteBuffer(data: data)))

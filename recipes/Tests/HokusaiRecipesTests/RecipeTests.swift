@@ -163,3 +163,54 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
         #expect(!id.contains("/") && !id.contains("."))
     }
 }
+
+@Suite struct InspectTests {
+    private func facts(_ data: Data) throws -> [String: Any] { try JSONSerialization.jsonObject(with: data) as! [String: Any] }
+
+    @Test func metadataRetentionIsVerifiedOnTheExportedBytes() async throws {
+        let api = DemoAPI(backend: "test")
+        let id = try await api.uploads.put(try fixture("metadata.jpg"))
+        func exported(_ options: [String: ParamValue]) async throws -> [String: Any] {
+            let recipe = Recipe(steps: [], output: .init(format: "jpeg", options: options))
+            return try facts(try await api.inspect(uploadId: id, recipe: recipe))["output"] as! [String: Any]
+        }
+        let source = try facts(try await api.inspect(uploadId: id, recipe: nil))["source"] as! [String: Any]
+        #expect((source["exifBytes"] as! Int) > 0 && (source["iccBytes"] as! Int) > 0 && (source["xmpBytes"] as! Int) > 0 && (source["iptcBytes"] as! Int) > 0)
+
+        // The default keeps ICC, orientation and density and drops the rest. Orientation and density are stored
+        // inside an EXIF block, so a small one remains: the camera details are gone, not the block itself.
+        let byDefault = try await exported([:])
+        #expect(byDefault["xmpBytes"] as! Int == 0 && byDefault["iptcBytes"] as! Int == 0)
+        #expect((byDefault["exifBytes"] as! Int) < (source["exifBytes"] as! Int))
+        #expect((byDefault["iccBytes"] as! Int) > 0)
+
+        let stripped = try await exported(["keepOrientation": .bool(false), "keepDensity": .bool(false)])
+        #expect(stripped["exifBytes"] as! Int == 0)
+
+        let all = try await exported(["keepExif": .bool(true), "keepXmp": .bool(true), "keepIptc": .bool(true)])
+        #expect((all["exifBytes"] as! Int) > 0 && (all["xmpBytes"] as! Int) > 0 && (all["iptcBytes"] as! Int) > 0)
+
+        let noIcc = try await exported(["keepIcc": .bool(false)])
+        #expect(noIcc["iccBytes"] as! Int == 0)
+    }
+
+    @Test func policyIsPrintedOnlyWhenItDiffersFromTheDefault() throws {
+        #expect(try !SwiftCodeGenerator.chain(Recipe(output: .init(format: "jpeg"))).joined().contains("metadataPolicy"))
+        let recipe = Recipe(output: .init(format: "jpeg", options: ["keepExif": .bool(true), "keepIcc": .bool(false)]))
+        let line = try SwiftCodeGenerator.chain(recipe)[0]
+        #expect(line == ".metadataPolicy(MetadataPolicy(exif: .preserve, icc: .remove))")
+    }
+
+    @Test func stopBeforeShowsTheImageEnteringAStep() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let crop = Step(id: "c", op: "crop", params: ["width": .number(100), "height": .number(100)])
+        let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(400), "fit": .string("inside")]), Step(op: "rotate", params: ["degrees": .number(90)]), crop], output: .init(format: "png"))
+        let service = RenderService(uploads: store)
+        let entering = try await service.render(RenderRequest(uploadId: id, recipe: recipe, stopBefore: "c"))
+        #expect((entering.width, entering.height) == (250, 400))     // 1600×1000 → 400×250 → rotated
+        let result = try await service.render(RenderRequest(uploadId: id, recipe: recipe))
+        #expect((result.width, result.height) == (100, 100))
+        await #expect(throws: RenderError.self) { try await service.render(RenderRequest(uploadId: id, recipe: recipe, stopBefore: "nope")) }
+    }
+}

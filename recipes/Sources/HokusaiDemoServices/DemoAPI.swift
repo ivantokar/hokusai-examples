@@ -11,6 +11,13 @@ public struct DemoAPI: Sendable {
     /// Hokusai release the package was resolved against, for display.
     public let hokusaiVersion: String
 
+    /// The generated sample images both backends serve.
+    public static let samples: [(name: String, title: String)] = [
+        ("scene.png", "Scene (landscape)"), ("phone.jpg", "Phone photo (EXIF rotated)"),
+        ("emblem.png", "Emblem (transparent)"), ("metadata.jpg", "Metadata fixture (EXIF, ICC, XMP, IPTC)"),
+    ]
+    public static let sampleNames: Set<String> = Set(samples.map(\.name)).union(["mask.png"])
+
     public init(backend: String, uploads: UploadStore = UploadStore(), hokusaiVersion: String = "2.2.2") {
         self.backend = backend
         self.uploads = uploads
@@ -34,8 +41,7 @@ public struct DemoAPI: Sendable {
     public func catalogJSON() throws -> Data {
         struct Body: Encodable { let operations: [OperationSpec]; let outputs: [Catalog.OutputSpec]; let presets: [Preset]; let targets: [String]; let samples: [Sample] }
         struct Sample: Encodable { let name: String; let title: String }
-        let samples = [Sample(name: "scene.png", title: "Scene (landscape)"), Sample(name: "phone.jpg", title: "Phone photo (EXIF rotated)"),
-                       Sample(name: "emblem.png", title: "Emblem (transparent)")]
+        let samples = Self.samples.map { Sample(name: $0.name, title: $0.title) }
         return try Self.encode(Body(operations: Catalog.operations, outputs: Catalog.outputs, presets: Presets.all,
                                     targets: SwiftCodeGenerator.Target.allCases.map(\.rawValue), samples: samples))
     }
@@ -73,6 +79,44 @@ public struct DemoAPI: Sendable {
                                     format: metadata.format.map { String(describing: $0) }, bytes: data.count))
     }
 
+    // MARK: Inspect
+
+    private struct Facts: Encodable {
+        let format: String?; let width: Int; let height: Int; let orientedWidth: Int; let orientedHeight: Int
+        let orientation: Int?; let channels: Int; let hasAlpha: Bool; let interpretation: String; let sampleFormat: String
+        let bitsPerSample: Int?; let isPalette: Bool?; let density: String?; let pages: Int; let animated: Bool
+        let frames: Int?; let progressive: Bool?; let chroma: String?; let bytes: Int
+        /// Sizes in bytes of the embedded blocks; 0 means the block is absent.
+        let exifBytes: Int; let iccBytes: Int; let xmpBytes: Int; let iptcBytes: Int
+    }
+
+    private static func format(_ v: Double) -> String { v == v.rounded() ? String(Int(v)) : String(format: "%.2f", v) }
+
+    private static func facts(_ m: ImageMetadata, bytes: Int) -> Facts {
+        Facts(format: m.format.map { String(describing: $0) }, width: m.width, height: m.height,
+              orientedWidth: m.orientedSize.width, orientedHeight: m.orientedSize.height, orientation: m.orientation?.rawValue,
+              channels: m.pixel.channels, hasAlpha: m.pixel.hasAlpha, interpretation: String(describing: m.pixel.interpretation),
+              sampleFormat: String(describing: m.pixel.sampleFormat), bitsPerSample: m.pixel.bitsPerSample, isPalette: m.pixel.isPalette,
+              density: m.density.map { "\(format($0.horizontal)) × \(format($0.vertical))\(m.densityUnit.map { " \(String(describing: $0))" } ?? "")" }, pages: m.pages.count, animated: m.isAnimated,
+              frames: m.animation?.frameDelays.count, progressive: m.isProgressive, chroma: m.chromaSubsampling, bytes: m.sourceByteSize ?? bytes,
+              exifBytes: m.exif?.count ?? 0, iccBytes: m.iccProfile?.count ?? 0, xmpBytes: m.xmp?.count ?? 0, iptcBytes: m.iptc?.count ?? 0)
+    }
+
+    /// Facts about the original upload and, when a recipe is given, about the bytes that recipe actually
+    /// exports. The output is encoded and read back, so what is shown is what a file would contain and
+    /// not what the settings promise.
+    public func inspect(uploadId: String, recipe: Recipe?) async throws -> Data {
+        guard let bytes = await uploads.get(uploadId) else { throw RenderError.unknownUpload }
+        struct Body: Encodable { let source: Facts; let output: Facts?; let outputFormat: String? }
+        let source = Self.facts(try await Hokusai(data: bytes).metadata(), bytes: bytes.count)
+        var output: Facts?
+        if let recipe {
+            let rendered = try await render.render(RenderRequest(uploadId: uploadId, recipe: recipe))
+            output = Self.facts(try await Hokusai(data: rendered.data).metadata(), bytes: rendered.data.count)
+        }
+        return try Self.encode(Body(source: source, output: output, outputFormat: recipe?.output.format))
+    }
+
     public func decodeRenderRequest(_ body: Data) throws -> RenderRequest {
         try JSONDecoder().decode(RenderRequest.self, from: body)
     }
@@ -99,6 +143,7 @@ public struct DemoAPI: Sendable {
             case .empty: Failure(status: 400, code: "empty", message: "The upload is empty.")
             }
         case RenderError.unknownUpload: Failure(status: 404, code: "expiredUpload", message: "That upload has expired or never existed. Open the image again.")
+        case RenderError.unknownStep: Failure(status: 422, code: "recipe", message: "The step to stop before is not in the recipe.")
         case RenderError.invalidPreviewSize: Failure(status: 400, code: "previewSize", message: "previewMaxEdge must be between 16 and 4096.")
         case is DecodingError: Failure(status: 400, code: "badRequest", message: "The request body is not valid JSON for this endpoint.")
         default: nil
