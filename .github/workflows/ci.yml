@@ -85,3 +85,4 @@ jobs:
           for p in 8081 8082; do for i in $(seq 1 30); do curl -fsS http://127.0.0.1:$p/api/backend >/dev/null && break; sleep 1; done; done
           scripts/smoke.sh http://127.0.0.1:8081 vapor
           scripts/smoke.sh http://127.0.0.1:8082 hummingbird
+          scripts/parity.sh http://127.0.0.1:8081 http://127.0.0.1:8082

@@ -99,9 +99,10 @@ swift test --package-path macos        # the macOS app's model: undo/redo, revis
 scripts/check-snippets.sh              # the Swift the playground prints compiles and runs, for every preset and the PDF template
 scripts/coverage.py --check            # the coverage matrix is current
 scripts/smoke.sh http://127.0.0.1:8081 vapor   # HTTP smoke test against a running backend
+scripts/parity.sh http://127.0.0.1:8081 http://127.0.0.1:8082   # both backends answer identically (bytes, headers, errors)
 ```
 
-CI builds both Docker images, starts each and runs the same smoke test; a macOS job runs the rest and both servers natively.
+CI builds both Docker images, starts each and runs the same smoke test; a macOS job runs the rest, starts both servers natively and checks that they answer identically.
 
 ## Testing unreleased library changes
 
@@ -123,7 +124,7 @@ Never commit an edited checkout.
 - Measured by the Runtime Lab on both backends: aborting a `/api/render` request in the browser does not stop the evaluation on the server; it finishes the work first. Treat browser-side cancellation as not proving native cancellation.
 
 - macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
-- Split compare and switching between two running backends are planned. The macOS app has numeric crop only, no vector document builder yet, and takes its second layer image through a file picker (its output panel does offer the raster PDF and every encoder).
+- There is no in-page switch between the two backends: run the one you want. `scripts/parity.sh` is what keeps them equal, by sending the same requests to both. The macOS app has numeric crop only, no vector document builder yet, and takes its second layer image through a file picker (its output panel does offer the raster PDF and every encoder).
 - Raw pixels: 16-bit values are shown as little-endian, the server's native order here (checked against the 8-bit output); the library has no statistics or histogram API and the demo does not invent one. Animations can be inspected and read frame by frame but not edited or encoded as animations: that is not in the library.
 - Vector documents: pictures come from the bundled samples or your upload; there is no font upload, so text uses the system's sans, serif and monospace. The "selectable text" indicator in the Web UI is a heuristic (the PDF carries a text font with a character map); the unit tests confirm it with a real PDF reader on macOS.
 - Browsers do not display TIFF, HEIF or PDF as images, so the playground shows a labelled PNG decoded from the real bytes; Export always downloads the real file.
