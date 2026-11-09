@@ -57,25 +57,45 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
         do { return json(try await api.upload(body(req)), status: .created) } catch { return fail(error) }
     }
     routes.post("code") { req async -> Response in
-        do { return json(try api.code(body(req))) } catch { return fail(error) }
+        do { return json(try await api.code(body(req))) } catch { return fail(error) }
     }
     routes.post("inspect") { req async -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe?; let page: Int?; let assets: [String: String]? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: body(req))
-            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe, page: body.page, assets: body.assets))
         } catch { return fail(error) }
     }
     routes.post("render") { req async -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(body(req)))
-            return Response(status: .ok, headers: [
-                "Content-Type": result.mime, "Cache-Control": "no-store",
-                "X-Hokusai-Width": String(result.width), "X-Hokusai-Height": String(result.height),
-                "X-Hokusai-Bytes": String(result.data.count), "X-Hokusai-Backend": api.backend,
-                "Server-Timing": "render;dur=\(String(format: "%.1f", result.serverMilliseconds))",
-                "Access-Control-Expose-Headers": "X-Hokusai-Width, X-Hokusai-Height, X-Hokusai-Bytes, X-Hokusai-Backend, Server-Timing",
-            ], body: .init(data: result.data))
+            return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.data))
+        } catch { return fail(error) }
+    }
+    routes.post("raw", "output") { req async -> Response in
+        do {
+            let result = try await api.rawOutput(try api.decodeRawOutputRequest(body(req)))
+            return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.data))
+        } catch { return fail(error) }
+    }
+    routes.post("raw", "input") { req async -> Response in
+        do {
+            let input = try DemoAPI.RawInput(query: { req.query[String.self, at: $0] })
+            let result = try await api.rawInput(input, data: body(req))
+            return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.png))
+        } catch { return fail(error) }
+    }
+    routes.post("pdf") { req async -> Response in
+        do {
+            let result = try await api.pdf(try api.decodePDFRequest(body(req)))
+            return Response(status: .ok, headers: HTTPHeaders(result.headers(backend: api.backend).map { ($0.key, $0.value) }), body: .init(data: result.data))
+        } catch { return fail(error) }
+    }
+    routes.post("compare") { req async -> Response in
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe; let page: Int?; let assets: [String: String]? }
+        do {
+            let body = try JSONDecoder().decode(Body.self, from: body(req))
+            return json(try await api.compare(uploadId: body.uploadId, recipe: body.recipe, page: body.page, assets: body.assets))
         } catch { return fail(error) }
     }
 }
@@ -89,13 +109,13 @@ func configure(_ app: Application) throws {
     // Vapor collects request bodies up to this size; the minimal route and the upload route check their own limits too.
     app.routes.defaultMaxBodySize = "26mb"
 
-    let api = DemoAPI(backend: "vapor")
+    let fixtures = Environment.get("FIXTURES_ROOT") ?? "../fixtures"
+    let api = DemoAPI(backend: "vapor", fixtures: URL(fileURLWithPath: fixtures))
     minimalRoutes(app)
     demoRoutes(app, api: api)
 
     // The web UI and the sample images are plain files shared by both backends.
     let root = Environment.get("WEB_ROOT") ?? "../web"
-    let fixtures = Environment.get("FIXTURES_ROOT") ?? "../fixtures"
     app.middleware.use(FileMiddleware(publicDirectory: root, defaultFile: "index.html"))
     app.get("samples", ":name") { req async throws -> Response in
         let name = try req.parameters.require("name")

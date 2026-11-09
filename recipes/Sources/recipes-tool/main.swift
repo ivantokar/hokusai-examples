@@ -1,5 +1,7 @@
 import Foundation
+import Hokusai
 import HokusaiRecipes
+import HokusaiPDF
 
 // recipes-tool snippets <directory>
 //   Writes a small SwiftPM package with one executable per preset, each containing the exact code the
@@ -11,7 +13,9 @@ import HokusaiRecipes
 let args = CommandLine.arguments.dropFirst()
 switch args.first {
 case "snippets":
-    guard let directory = args.dropFirst().first else { FileHandle.standardError.write(Data("usage: recipes-tool snippets <dir>\n".utf8)); exit(2) }
+    guard let directory = args.dropFirst().first else { FileHandle.standardError.write(Data("usage: recipes-tool snippets <dir> [fixtures]\n".utf8)); exit(2) }
+    let fixtures = URL(fileURLWithPath: args.dropFirst(2).first ?? "fixtures")
+    let assets: RecipeCompiler.Assets = { name in try Hokusai(url: fixtures.appending(path: name)) }
     let root = URL(fileURLWithPath: directory)
     try? FileManager.default.removeItem(at: root)
     var targets: [String] = []
@@ -20,10 +24,21 @@ case "snippets":
         let name = "Preset_" + preset.id.replacingOccurrences(of: "-", with: "_")
         let folder = root.appending(path: "Sources/\(name)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try SwiftCodeGenerator.swift(preset.recipe, target: .core).write(to: folder.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        // A mask picture is stretched to the size of the image entering its step; measure it so the code can say so.
+        let sizes = try await RecipeSizing.resolve(preset.recipe, source: try Hokusai(url: fixtures.appending(path: preset.sample)), assets: assets)
+        try SwiftCodeGenerator.swift(preset.recipe, target: .core, sizes: sizes).write(to: folder.appending(path: "main.swift"), atomically: true, encoding: .utf8)
         targets.append(name)
         let ext = Catalog.outputs.first { $0.format == preset.recipe.output.format }!.fileExtension
         manifest.append(["target": name, "sample": preset.sample, "output": "result.\(ext)"])
+    }
+    // The vector document template: HokusaiPDF code, with the pictures it places next to the program.
+    for template in VectorPresets.all {
+        let name = "Vector_" + template.id.replacingOccurrences(of: "-", with: "_")
+        let folder = root.appending(path: "Sources/\(name)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try VectorCodeGenerator.swift(template.doc).write(to: folder.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        targets.append(name)
+        manifest.append(["target": name, "sample": "scene.png", "output": "document.pdf"])
     }
     let package = """
     // swift-tools-version: 6.0
@@ -34,13 +49,27 @@ case "snippets":
         platforms: [.macOS(.v13)],
         dependencies: [.package(url: "https://github.com/ivantokar/hokusai.git", from: "2.2.2")],
         targets: [
-    \(targets.map { "        .executableTarget(name: \"\($0)\", dependencies: [.product(name: \"Hokusai\", package: \"hokusai\")])," }.joined(separator: "\n"))
+    \(targets.map { "        .executableTarget(name: \"\($0)\", dependencies: [.product(name: \"Hokusai\", package: \"hokusai\"), .product(name: \"HokusaiPDF\", package: \"hokusai\")])," }.joined(separator: "\n"))
         ]
     )
     """
     try package.write(to: root.appending(path: "Package.swift"), atomically: true, encoding: .utf8)
     try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]).write(to: root.appending(path: "manifest.json"))
     print("wrote \(targets.count) snippet targets to \(directory)")
+case "pages-pdf":
+    // fixtures/pages.pdf: three small pages, so the Inspect view has a real multipage input to page through.
+    guard let path = args.dropFirst().first else { FileHandle.standardError.write(Data("usage: recipes-tool pages-pdf <file>\n".utf8)); exit(2) }
+    let colours = ["#f1ead8", "#d7e6ea", "#f3d9c8"]
+    let pages = (1...3).map { n in
+        VectorPageSpec(size: "custom", width: 300, height: 200, items: [
+            VectorItem(type: "background", props: ["fill": .string(colours[n - 1])]),
+            VectorItem(type: "text", props: ["content": .string("Page \(n)"), "x": .number(24), "y": .number(60), "size": .number(48), "weight": .string("bold"), "color": .string("#1b3a57")]),
+            VectorItem(type: "text", props: ["content": .string("of 3 · selectable text"), "x": .number(24), "y": .number(130), "size": .number(14), "color": .string("#1c2733")]),
+        ])
+    }
+    let document = try VectorCompiler.compile(VectorDocumentSpec(title: "Pages fixture", pages: pages), assets: { _ in throw VectorError.noUpload })
+    try await document.data().data.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
 case "coverage":
     for op in Catalog.operations { print("operation \(op.id)") }
     for out in Catalog.outputs { print("output \(out.format)") }

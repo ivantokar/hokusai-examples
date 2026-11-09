@@ -12,7 +12,7 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
     @Test func everyOperationRendersWithDefaults() async throws {
         let store = UploadStore()
         let id = try await store.put(try fixture("scene.png"))
-        let service = RenderService(uploads: store)
+        let service = RenderService(uploads: store, fixtures: fixtures)
         for spec in Catalog.operations {
             // Crop is checked separately; its default rectangle is larger than a tiny test image.
             let recipe = Recipe(steps: [Step(op: spec.id)], output: .init(format: "png"))
@@ -36,7 +36,7 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
 
     @Test func presetsAllRender() async throws {
         let store = UploadStore()
-        let service = RenderService(uploads: store)
+        let service = RenderService(uploads: store, fixtures: fixtures)
         for preset in Presets.all {
             let id = try await store.put(try fixture(preset.sample))
             let result = try await service.render(RenderRequest(uploadId: id, recipe: preset.recipe, previewMaxEdge: nil))
@@ -212,5 +212,260 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
         let result = try await service.render(RenderRequest(uploadId: id, recipe: recipe))
         #expect((result.width, result.height) == (100, 100))
         await #expect(throws: RenderError.self) { try await service.render(RenderRequest(uploadId: id, recipe: recipe, stopBefore: "nope")) }
+    }
+}
+
+#if canImport(PDFKit)
+import PDFKit
+#endif
+
+@Suite struct VectorDocumentTests {
+    private func assets(upload: Data? = nil) -> VectorCompiler.Assets {
+        { name in
+            if name == "upload" { guard let upload else { throw VectorError.noUpload }; return try Hokusai(data: upload) }
+            return try Hokusai(data: try fixture(name))
+        }
+    }
+
+    @Test func reportRendersATwoPagePDFWithRealText() async throws {
+        let document = try VectorCompiler.compile(VectorPresets.report, assets: assets())
+        let output = try await document.data()
+        #expect(output.data.starts(with: Array("%PDF".utf8)))
+        #expect(output.info.pageCount == 2)
+        // Cairo writes a character map for every text font; a PDF of only pixels has none.
+        #expect(output.data.range(of: Data("/ToUnicode".utf8)) != nil)
+        #if canImport(PDFKit)
+        // The strongest check: a PDF reader can extract the words, so they are selectable text and not pixels.
+        let reader = try #require(PDFDocument(data: output.data))
+        #expect(reader.pageCount == 2)
+        let text = reader.string ?? ""
+        #expect(text.range(of: "Lighthouse report") != nil, "Lighthouse report is not selectable text")
+        #expect(text.range(of: "Findings") != nil, "Findings is not selectable text")
+        #expect(text.range(of: "ten seconds") != nil, "ten seconds is not selectable text")
+        #endif
+    }
+
+    @Test func aRasterPDFHasNoSelectableText() async throws {
+        let recipe = Recipe(steps: [Step(op: "text", params: ["content": .string("Pixels only")])], output: .init(format: "pdf"))
+        let compiled = try RecipeCompiler.compile(recipe, source: try Hokusai(data: try fixture("scene.png")))
+        let output = try await compiled.pipeline.data()
+        #expect(output.info.pdf?.pageCount == 1)
+        #expect(output.data.range(of: Data("/ToUnicode".utf8)) == nil)
+        #if canImport(PDFKit)
+        #expect((PDFDocument(data: output.data)?.string ?? "").range(of: "Pixels only") == nil)
+        #endif
+    }
+
+    @Test func invalidDocumentsAreReportedNotMoved() throws {
+        #expect(throws: VectorError.noPages) { try VectorCompiler.validate(VectorDocumentSpec(pages: [])) }
+        #expect(throws: VectorError.unknownItem("table")) { try VectorCompiler.validate(VectorDocumentSpec(pages: [VectorPageSpec(items: [VectorItem(type: "table")])])) }
+        #expect(throws: (any Error).self) {   // a rectangle with neither fill nor outline
+            _ = try VectorCompiler.compile(VectorDocumentSpec(pages: [VectorPageSpec(items: [VectorItem(type: "rect", props: ["fill": .string("#00000000")])])]), assets: assets())
+        }
+        #expect(throws: VectorError.noUpload) {
+            _ = try VectorCompiler.compile(VectorDocumentSpec(pages: [VectorPageSpec(items: [VectorItem(type: "image", props: ["asset": .string("upload")])])]), assets: assets())
+        }
+    }
+
+    @Test func generatedSwiftMentionsEveryItemAndEscapesText() throws {
+        var doc = VectorPresets.report
+        doc.pages[0].items.append(VectorItem(type: "text", props: ["content": .string("He said \"hi\" \\(x)")]))
+        let code = try VectorCodeGenerator.swift(doc)
+        #expect(code.contains("VectorPage(size: .a4())"))
+        #expect(code.contains(".linearGradient(from: .sRGB8(red: 27, green: 58, blue: 87), to:"))
+        #expect(code.contains(".markup(") && code.contains(".image(try Hokusai(url:"))
+        #expect(code.contains(#"He said \"hi\" \\(x)"#))
+        #expect(code.contains("VectorDocument(pages: [page1, page2], metadata: PDFDocumentMetadata(title: \"Lighthouse report\", author: \"Hokusai examples\"))"))
+    }
+
+    @Test func documentsSurviveJSON() throws {
+        let back = try JSONDecoder().decode(VectorDocumentSpec.self, from: try JSONEncoder().encode(VectorPresets.report))
+        #expect(back == VectorPresets.report)
+    }
+
+    @Test func rasterPDFOptionsAreHonoured() async throws {
+        let recipe = Recipe(output: .init(format: "pdf", options: ["pageSize": .string("letter"), "orientation": .string("landscape"), "margins": .number(18), "title": .string("T")]))
+        let output = try await RecipeCompiler.compile(recipe, source: try Hokusai(data: try fixture("scene.png"))).pipeline.data()
+        #expect(output.info.pdf?.pageWidth == 792 && output.info.pdf?.pageHeight == 612)
+        let code = try SwiftCodeGenerator.chain(recipe).last!
+        #expect(code.contains(".letter(.landscape)") && code.contains("margins: .all(18)") && code.contains("PDFDocumentMetadata(title: \"T\")"))
+    }
+}
+
+@Suite struct RawAndPagesTests {
+    private func facts(_ data: Data) throws -> [String: Any] { try JSONSerialization.jsonObject(with: data) as! [String: Any] }
+
+    @Test func rawOutputReportsTheLayoutItReallyUses() async throws {
+        let api = DemoAPI(backend: "test")
+        let id = try await api.uploads.put(try fixture("scene.png"))
+        let recipe = Recipe(output: .init(format: "png"))
+        for (format, channels, bits) in [("gray8", 1, 8), ("rgba8", 4, 8), ("rgb16", 3, 16), ("grayAlpha16", 2, 16)] {
+            let raw = try await api.rawOutput(.init(uploadId: id, recipe: recipe, format: format, premultiplied: nil, background: nil, maxEdge: 64, page: nil))
+            #expect(raw.channels == channels && raw.bitDepth == bits && raw.format == format, "\(format)")
+            #expect(raw.rowStride == raw.width * channels * bits / 8)
+            #expect(raw.data.count == raw.rowStride * raw.height)
+            #expect(max(raw.width, raw.height) == 64)
+        }
+    }
+
+    @Test func rawInputRoundTripsEveryFormatIncludingPaddedRows() async throws {
+        let api = DemoAPI(backend: "test")
+        for format in ["gray8", "grayAlpha8", "rgb8", "rgba8", "gray16", "grayAlpha16", "rgb16", "rgba16"] {
+            let bpp = DemoAPI.rawFormats[format]!.bytesPerPixel
+            for padding in [0, 8] {
+                let stride = 8 * bpp + padding
+                let data = Data((0..<(stride * 8 - padding)).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 3) })
+                let result = try await api.rawInput(.init(width: 8, height: 8, format: format, rowStride: padding == 0 ? nil : stride), data: data)
+                #expect(result.roundTrip == "exact", "\(format) padding \(padding)")
+                #expect(result.png.starts(with: [0x89, 0x50, 0x4e, 0x47]))
+            }
+        }
+    }
+
+    @Test func rawInputRefusesAWrongDeclaration() async throws {
+        let api = DemoAPI(backend: "test")
+        await #expect(throws: HokusaiError.self) { try await api.rawInput(.init(width: 8, height: 8, format: "rgba8"), data: Data(count: 8 * 8 * 4 - 1)) }
+        await #expect(throws: HokusaiError.self) { try await api.rawInput(.init(width: 8, height: 8, format: "rgb8"), data: Data(count: 8 * 8 * 4)) }
+        await #expect(throws: RecipeError.self) { try await api.rawInput(.init(width: 8, height: 8, format: "cmyk8"), data: Data(count: 256)) }
+    }
+
+    @Test func pageSelectionPicksDifferentPagesAndReportsAnimation() async throws {
+        let api = DemoAPI(backend: "test")
+        let pdf = try await api.uploads.put(try fixture("pages.pdf"))
+        let recipe = Recipe(output: .init(format: "png"))
+        let source = try facts(try await api.inspect(uploadId: pdf, recipe: nil, page: 1))["source"] as! [String: Any]
+        #expect(source["pages"] as? Int == 3 && source["animated"] as? Bool == false)
+        let first = try await api.render.render(RenderRequest(uploadId: pdf, recipe: recipe, page: 0))
+        let third = try await api.render.render(RenderRequest(uploadId: pdf, recipe: recipe, page: 2))
+        #expect(first.data != third.data)                       // each page is its own image
+        #expect((first.width, first.height) == (third.width, third.height))
+
+        let gif = try await api.uploads.put(try fixture("anim.gif"))
+        let anim = try facts(try await api.inspect(uploadId: gif, recipe: nil))["source"] as! [String: Any]
+        #expect(anim["animated"] as? Bool == true && anim["frames"] as? Int == 3)
+        #expect(anim["frameDelaysMs"] as? [Int] == [200, 200, 200])
+        #expect(anim["loopCount"] as? Int == 0)
+    }
+}
+
+@Suite struct LayerAndMaskTests {
+    private func alphaRange(_ png: Data) async throws -> (min: Int, max: Int, hasAlpha: Bool) {
+        let image = try Hokusai(data: png)
+        let meta = try await image.metadata()
+        guard meta.pixel.hasAlpha else { return (255, 255, false) }
+        let alpha = try await image.extractChannel(.alpha).raw(.gray8).data
+        return (Int(alpha.min() ?? 0), Int(alpha.max() ?? 0), true)
+    }
+
+    @Test func anImageLayerChangesOnlyWhereItIsPlaced() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        let plain = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [], output: .init(format: "png"))))
+        let layered = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "layer", params: ["asset": .string("emblem.png"), "width": .number(200), "gravity": .string("southEast")])], output: .init(format: "png"))))
+        #expect((plain.width, plain.height) == (layered.width, layered.height))
+        #expect(plain.data != layered.data)
+        // The top-left corner is far from the layer: its pixels are unchanged.
+        let a = try await Hokusai(data: plain.data).extract(x: 0, y: 0, width: 100, height: 100).raw(.rgb8).data
+        let b = try await Hokusai(data: layered.data).extract(x: 0, y: 0, width: 100, height: 100).raw(.rgb8).data
+        #expect(a == b)
+    }
+
+    @Test func blendModeAndOpacityChangeTheResult() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        func render(_ params: [String: ParamValue]) async throws -> Data {
+            var p: [String: ParamValue] = ["asset": .string("phone.jpg"), "width": .number(600), "gravity": .string("northWest"), "offsetX": .number(0), "offsetY": .number(0)]
+            p.merge(params) { $1 }
+            return try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "layer", params: p)], output: .init(format: "png")))).data
+        }
+        let normal = try await render([:]), multiply = try await render(["blend": .string("multiply")]), faint = try await render(["opacity": .number(0.25)])
+        #expect(normal != multiply && normal != faint && multiply != faint)
+    }
+
+    @Test func aMaskTurnsBrightnessIntoTransparency() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        let own = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "mask")], output: .init(format: "png"))))
+        let ownAlpha = try await alphaRange(own.data)
+        #expect(ownAlpha.hasAlpha && ownAlpha.min < ownAlpha.max)            // a soft mask: many alpha values
+
+        let hard = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "mask", params: ["threshold": .number(128)])], output: .init(format: "png"))))
+        let hardAlpha = try await alphaRange(hard.data)
+        #expect(hardAlpha.min == 0 && hardAlpha.max == 255)
+
+        // A picture mask is stretched to the size of the image entering the step, even after a resize.
+        let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(500), "fit": .string("inside")]), Step(id: "m", op: "mask", params: ["source": .string("picture")])], output: .init(format: "png"))
+        #expect(RecipeSizing.needsSizes(recipe))
+        let pictured = try await service.render(RenderRequest(uploadId: id, recipe: recipe))
+        #expect((pictured.width, pictured.height) == (500, 312))
+        #expect(try await alphaRange(pictured.data).min < 255)
+    }
+
+    @Test func theMaskStepNamesTheSizeInTheGeneratedCode() async throws {
+        let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(500), "fit": .string("inside")]), Step(id: "m", op: "mask", params: ["source": .string("picture"), "feather": .number(2), "invert": .bool(true)])], output: .init(format: "png"))
+        let sized = try SwiftCodeGenerator.chain(recipe, sizes: ["m": PixelSize(width: 500, height: 312)]).joined(separator: "\n")
+        #expect(sized.contains(".resize(width: 500, height: 312, fit: .fill)"))
+        #expect(sized.contains(".blur(sigma: 2)") && sized.contains(".negate()"))
+        #expect(try SwiftCodeGenerator.chain(recipe).joined().contains("imageWidth"))     // without a size it says what is missing
+    }
+
+    @Test func aSecondImageComesFromAnUploadNeverAPath() async throws {
+        let store = UploadStore()
+        let base = try await store.put(try fixture("scene.png"))
+        let second = try await store.put(try fixture("emblem.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        let recipe = Recipe(steps: [Step(op: "layer", params: ["asset": .string("second"), "width": .number(150)])], output: .init(format: "png"))
+        await #expect(throws: RecipeError.self) { try await service.render(RenderRequest(uploadId: base, recipe: recipe)) }     // not provided
+        let ok = try await service.render(RenderRequest(uploadId: base, recipe: recipe, assets: ["second": second]))
+        #expect(ok.width == 1600)
+        for evil in ["../../etc/passwd", "/etc/passwd", "scene.png/../mask.png"] {
+            let bad = Recipe(steps: [Step(op: "layer", params: ["asset": .string(evil)])], output: .init(format: "png"))
+            await #expect(throws: RecipeError.self) { try await service.render(RenderRequest(uploadId: base, recipe: bad)) }
+        }
+    }
+
+    @Test func theNewQuickOperationsDoWhatTheySay() async throws {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        let service = RenderService(uploads: store, fixtures: fixtures)
+        func size(_ steps: [Step]) async throws -> (Int, Int) { let r = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: steps, output: .init(format: "png")))); return (r.width, r.height) }
+        #expect(try await size([Step(op: "extend", params: ["top": .number(10), "bottom": .number(20), "left": .number(30), "right": .number(40)])]) == (1670, 1030))
+        #expect(try await size([Step(op: "channel", params: ["channel": .string("red")])]) == (1600, 1000))
+        let removed = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "ensureAlpha"), Step(op: "removeAlpha")], output: .init(format: "png"))))
+        #expect(!(try await alphaRange(removed.data).hasAlpha))
+        let added = try await service.render(RenderRequest(uploadId: id, recipe: Recipe(steps: [Step(op: "ensureAlpha")], output: .init(format: "png"))))
+        #expect(try await alphaRange(added.data).hasAlpha)
+    }
+}
+
+@Suite struct BoundPipelineCodeTests {
+    private let recipe = Recipe(steps: [Step(op: "resize", params: ["width": .number(800), "fit": .string("inside")]), Step(op: "mask", params: ["threshold": .number(100)]), Step(op: "flatten")], output: .init(format: "png"))
+
+    @Test func aMaskFromTheImagesOwnBrightnessNamesThePipelineItIsTakenFrom() throws {
+        let code = try SwiftCodeGenerator.swift(recipe)
+        #expect(code.contains("let image = try Hokusai(url: URL(fileURLWithPath: \"input.jpg\"))"))
+        #expect(code.contains("let output = try await image"))
+        #expect(code.contains(".withAlpha(from: image.grayscale()") && code.contains(".threshold(100)"))
+        #expect(!code.contains("§") && !code.contains("\u{1}"))
+        // the resize belongs to the bound image, the flatten comes after the mask
+        let beforeOutput = try #require(code.range(of: "let output")).lowerBound
+        #expect(code[..<beforeOutput].contains(".resize(width: 800"))
+        #expect(code[beforeOutput...].contains(".flatten(") || code[beforeOutput...].contains(".png()"))
+    }
+
+    @Test func serverVariantsBindToo() throws {
+        let vapor = try SwiftCodeGenerator.swift(recipe, target: .vapor)
+        #expect(vapor.contains("let image = try await req.hokusaiImage") && vapor.contains("return try await image"))
+        let hb = try SwiftCodeGenerator.swift(recipe, target: .hummingbird)
+        #expect(hb.contains("let upload = try await request.hokusaiImage") && hb.contains("let image = upload") && hb.contains("return try await image"))
+    }
+
+    @Test func twoMasksGetTwoNames() throws {
+        let two = Recipe(steps: [Step(op: "mask"), Step(op: "mask", params: ["invert": .bool(true)])], output: .init(format: "png"))
+        let code = try SwiftCodeGenerator.swift(two)
+        #expect(code.contains("let image = ") && code.contains("let image2 = image") && code.contains("image2.grayscale()"))
     }
 }

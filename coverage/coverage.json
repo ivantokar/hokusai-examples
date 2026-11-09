@@ -32,8 +32,8 @@
   "area": "Sources",
   "item": "Raw pixels",
   "api": "Hokusai(raw:)",
-  "status": "planned",
-  "where": "Inspect lab"
+  "status": "implemented",
+  "where": "Inspect > Raw pixels (raw input)"
  },
  {
   "area": "Geometry",
@@ -95,8 +95,9 @@
   "area": "Geometry",
   "item": "Extend (canvas)",
   "api": "extend(...)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground: padding per side, colour, edge copy, tiling or mirroring",
+  "op": "extend"
  },
  {
   "area": "Geometry",
@@ -109,8 +110,9 @@
   "area": "Geometry",
   "item": "Trim",
   "api": "trim(...)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "trim"
  },
  {
   "area": "Effects",
@@ -204,8 +206,9 @@
   "area": "Effects",
   "item": "Linear",
   "api": "linear(multiply:add:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "linear"
  },
  {
   "area": "Advanced pixels",
@@ -223,52 +226,67 @@
  },
  {
   "area": "Advanced pixels",
-  "item": "Dilate / erode",
-  "api": "dilate(radius:), erode(radius:)",
-  "status": "planned",
-  "where": "Playground"
+  "item": "Dilate",
+  "api": "dilate(radius:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "dilate"
+ },
+ {
+  "area": "Advanced pixels",
+  "item": "Erode",
+  "api": "erode(radius:)",
+  "status": "implemented",
+  "where": "Playground",
+  "op": "erode"
  },
  {
   "area": "Advanced pixels",
   "item": "Edge detectors",
   "api": "edges(_:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground: Sobel, Scharr, Prewitt, Canny",
+  "op": "edges"
  },
  {
   "area": "Advanced pixels",
   "item": "Channel extraction",
   "api": "extractChannel(_:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "channel"
  },
  {
   "area": "Advanced pixels",
   "item": "Alpha from a mask",
-  "api": "joinAlpha(_:)",
-  "status": "planned",
-  "where": "Playground (needs a second image asset for masks)"
+  "api": "withAlpha(from:)",
+  "status": "implemented",
+  "where": "Playground: the image's own brightness or a picture (stretched to the size entering the step), with threshold, feather and invert; the generated Swift binds the pipeline it is taken from",
+  "op": "mask"
  },
  {
   "area": "Colour and alpha",
   "item": "Colour-space conversion",
   "api": "convert(to:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "colorspace"
  },
  {
   "area": "Colour and alpha",
   "item": "Ensure alpha",
   "api": "ensureAlpha(opacity:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "ensureAlpha"
  },
  {
   "area": "Colour and alpha",
   "item": "Remove alpha",
   "api": "removeAlpha()",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "where": "Playground",
+  "op": "removeAlpha"
  },
  {
   "area": "Colour and alpha",
@@ -290,39 +308,40 @@
   "area": "Composition and text",
   "item": "Image layers, blend, opacity, compositing space",
   "api": "composite(_:space:)",
-  "status": "planned",
-  "where": "Playground (needs extra image assets)"
+  "status": "implemented",
+  "where": "Playground: a bundled picture or your second image, width, placement or tiling, twenty blend modes, opacity, sRGB or linear blending",
+  "op": "layer"
  },
  {
   "area": "Encoders",
   "item": "JPEG",
   "api": "jpeg(quality:progressive:)",
-  "status": "partial",
-  "where": "Playground output panel; advanced typed options planned",
+  "status": "implemented",
+  "where": "Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes",
   "output": "jpeg"
  },
  {
   "area": "Encoders",
   "item": "PNG",
   "api": "png(compressionLevel:interlaced:)",
-  "status": "partial",
-  "where": "Playground output panel; advanced typed options planned",
+  "status": "implemented",
+  "where": "Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes",
   "output": "png"
  },
  {
   "area": "Encoders",
   "item": "WebP",
   "api": "webp(quality:effort:lossless:)",
-  "status": "partial",
-  "where": "Playground output panel; advanced typed options planned",
+  "status": "implemented",
+  "where": "Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes",
   "output": "webp"
  },
  {
   "area": "Encoders",
   "item": "AVIF",
   "api": "avif(quality:effort:lossless:)",
-  "status": "partial",
-  "where": "Playground output panel; advanced typed options planned",
+  "status": "implemented",
+  "where": "Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes",
   "output": "avif"
  },
  {
@@ -330,7 +349,7 @@
   "item": "TIFF",
   "api": "tiff(compression:)",
   "status": "partial",
-  "where": "Playground output panel; advanced typed options planned",
+  "where": "Playground output panel (compression); Export / PDF view comparison",
   "output": "tiff"
  },
  {
@@ -338,22 +357,24 @@
   "item": "GIF",
   "api": "gif()",
   "status": "implemented",
-  "where": "Playground output panel",
+  "where": "Playground output panel; Export / PDF view comparison",
   "output": "gif"
  },
  {
   "area": "Encoders",
   "item": "HEIF",
-  "api": "heif(...)",
-  "status": "planned",
-  "where": "Export / PDF view (needs a libvips with HEIF encoding; reported by /api/capabilities)"
+  "api": "heif(options:)",
+  "status": "implemented",
+  "where": "Playground output panel (HEVC or AV1, quality, effort, lossless); listed as unavailable with the reason when this libvips has no encoder; a labelled PNG proxy is shown because browsers do not display it",
+  "output": "heif"
  },
  {
   "area": "Encoders",
   "item": "Raster PDF",
   "api": "pdf(pageSize:margins:background:)",
-  "status": "planned",
-  "where": "Export / PDF view"
+  "status": "implemented",
+  "where": "Playground output panel and the Raster PDF report card: page size, orientation, margins, position, background, effective-resolution cap, document properties; preview is page 1 decoded from the real PDF",
+  "output": "pdf"
  },
  {
   "area": "Metadata",
@@ -373,22 +394,23 @@
   "area": "Raw and pages",
   "item": "Raw input and output",
   "api": "Hokusai(raw:), raw(...)",
-  "status": "planned",
-  "where": "Inspect lab"
+  "status": "implemented",
+  "where": "Inspect > Raw pixels: output in every raw format with layout, stride, alpha convention, channel previews and pixel values from the real bytes; input from a generated grid with padded rows, premultiplied alpha, and refused wrong declarations"
  },
  {
   "area": "Raw and pages",
   "item": "Page selection and counts",
   "api": "InputOptions.page",
-  "status": "planned",
-  "where": "Inspect lab"
+  "status": "implemented",
+  "where": "Inspect > Pages: page and frame selector (zero-based API index), thumbnails, page count versus animation, frame delays and loop count; the selection applies to preview, inspection and export"
  },
  {
   "area": "Vector PDF",
   "item": "HokusaiPDF documents",
-  "api": "PDFDocument",
-  "status": "planned",
-  "where": "Export / PDF view"
+  "api": "VectorDocument, VectorPage",
+  "status": "implemented",
+  "where": "Export / PDF view: multi-page document builder with text and Pango markup, rectangles, lines, gradients, images, page sizes and document properties; selectable text verified with a PDF reader in the tests",
+  "note": "Not an editor for existing PDFs; no tables or other layout beyond what HokusaiPDF draws."
  },
  {
   "area": "Terminals and runtime",

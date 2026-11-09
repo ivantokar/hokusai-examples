@@ -110,6 +110,98 @@ print(f"{codes.count(200)} accepted, {codes.count(503)} shed, then idle")
 PY
 ok "burst is shed with 503 and the server returns to idle"
 
+# PDF: a raster page, a vector document with real text, and honest previews of both.
+python3 - "$base" "$id" <<'PY' || fail "pdf"
+import json, sys, urllib.error, urllib.request
+base, upload = sys.argv[1], sys.argv[2]
+def post(path, body):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=json.dumps(body).encode()))
+catalog = json.load(urllib.request.urlopen(base + "/api/catalog"))
+assert any(o["format"] == "pdf" and o["available"] for o in catalog["outputs"]), "pdf output missing"
+raster = {"version": 1, "steps": [{"op": "text", "params": {"content": "Pixels only"}}], "output": {"format": "pdf", "options": {"pageSize": "letter", "orientation": "landscape", "title": "T"}}}
+real = post("/api/render", {"uploadId": upload, "recipe": raster})
+data = real.read()
+assert data[:4] == b"%PDF" and float(real.headers["x-hokusai-pdf-width"]) == 792, real.headers["x-hokusai-pdf-width"]
+assert b"/ToUnicode" not in data, "a raster page must not carry selectable text"
+proxy = post("/api/render", {"uploadId": upload, "recipe": raster, "viewable": True})
+png = proxy.read()
+assert png[1:4] == b"PNG" and proxy.headers["x-hokusai-proxy-of"] == "application/pdf" and int(proxy.headers["x-hokusai-bytes"]) == len(data)
+doc = catalog["vectorPresets"][0]["document"]
+vec = post("/api/pdf", {"document": doc})
+pdf = vec.read()
+assert pdf[:4] == b"%PDF" and vec.headers["x-hokusai-pdf-pages"] == "2" and vec.headers["x-hokusai-selectable-text"] == "true" and b"/ToUnicode" in pdf
+page = post("/api/pdf", {"document": doc, "previewPage": 2}).read()
+assert page[1:4] == b"PNG"
+cmp = json.load(post("/api/compare", {"uploadId": upload, "recipe": {"version": 1, "steps": [], "output": {"format": "png"}}}))
+ok = {r["format"] for r in cmp["rows"] if r["ok"]}
+assert {"jpeg", "png", "webp", "tiff"} <= ok, ok
+bad = {"document": {"version": 1, "pages": [{"items": [{"type": "image", "props": {"asset": "upload"}}]}]}}
+try: post("/api/pdf", bad); raise SystemExit("an image item with no upload should be rejected")
+except urllib.error.HTTPError as e: assert e.code == 422, e.code
+PY
+ok "raster PDF (no selectable text), vector PDF (selectable text), page previews, encoder comparison"
+
+# Raw pixels and pages: layouts are read from real bytes, a wrong declaration is refused, pages are real pages.
+python3 - "$base" "$here/fixtures" "$id" <<'PY' || fail "raw and pages"
+import json, sys, urllib.error, urllib.request
+base, fx, upload = sys.argv[1], sys.argv[2], sys.argv[3]
+def post(path, data, raw=False):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=data if raw else json.dumps(data).encode()))
+def upload_file(name): return json.load(post("/api/uploads", open(f"{fx}/{name}", "rb").read(), raw=True))["uploadId"]
+recipe = {"version": 1, "steps": [], "output": {"format": "png"}}
+r = post("/api/raw/output", {"uploadId": upload, "recipe": recipe, "format": "rgb16", "maxEdge": 64})
+body = r.read(); h = r.headers
+assert (h["x-raw-channels"], h["x-raw-bit-depth"], h["x-raw-premultiplied"]) == ("3", "16", "false"), dict(h)
+assert int(h["x-raw-row-stride"]) == int(h["x-raw-width"]) * 6 and len(body) == int(h["x-raw-row-stride"]) * int(h["x-raw-height"])
+data = bytes((i * 7 + 3) % 256 for i in range(8 * 8 * 4))
+ok = post("/api/raw/input?width=8&height=8&format=rgba8", data, raw=True)
+assert ok.headers["x-raw-roundtrip"] == "exact" and ok.read()[1:4] == b"PNG"
+for query, body in (("width=8&height=8&format=rgba8", data[:-1]), ("width=8&height=8&format=rgb8", data), ("width=8&height=8&format=cmyk8", data)):
+    try: post("/api/raw/input?" + query, body, raw=True); raise SystemExit("a wrong raw declaration was accepted: " + query)
+    except urllib.error.HTTPError as e: assert e.code in (400, 422), (query, e.code)
+gif = upload_file("anim.gif")
+facts = json.load(post("/api/inspect", {"uploadId": gif}))["source"]
+assert facts["pages"] == 3 and facts["animated"] and facts["frameDelaysMs"] == [200, 200, 200] and facts["loopCount"] == 0, facts
+pdf = upload_file("pages.pdf")
+p0 = post("/api/render", {"uploadId": pdf, "page": 0, "recipe": recipe}).read()
+p2 = post("/api/render", {"uploadId": pdf, "page": 2, "recipe": recipe}).read()
+assert p0[1:4] == b"PNG" and p0 != p2, "page selection returned the same image"
+assert json.load(post("/api/inspect", {"uploadId": pdf, "page": 1}))["source"]["pages"] == 3
+PY
+ok "raw output layout, raw input round trip and refusal, page and frame selection"
+
+# Layers and masks: pictures come from a fixed set or from named uploads, never from a path; masks match the image size.
+python3 - "$base" "$here/fixtures" "$id" <<'PY' || fail "layers and masks"
+import json, sys, urllib.error, urllib.request
+base, fx, upload = sys.argv[1], sys.argv[2], sys.argv[3]
+def post(path, body, raw=False):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=body if raw else json.dumps(body).encode()))
+def render(steps, extra=None, fmt="png"):
+    body = {"uploadId": upload, "recipe": {"version": 1, "steps": steps, "output": {"format": fmt}}}
+    body.update(extra or {})
+    r = post("/api/render", body); return r.read(), r.headers
+plain, _ = render([])
+layered, h = render([{"op": "layer", "params": {"asset": "emblem.png", "width": 200}}])
+assert layered != plain and h["x-hokusai-width"] == "1000", "the emblem layer changed nothing, or resized the picture"
+second = json.load(post("/api/uploads", open(f"{fx}/emblem.png", "rb").read(), raw=True))["uploadId"]
+with_second, _ = render([{"op": "layer", "params": {"asset": "second", "width": 200}}], {"assets": {"second": second}})
+assert with_second != plain, "the second image changed nothing"
+try: render([{"op": "layer", "params": {"asset": "second"}}]); raise SystemExit("a missing second image should be refused")
+except urllib.error.HTTPError as e: assert e.code == 422, e.code
+for evil in ("../../etc/passwd", "/etc/passwd", "scene.png/../mask.png"):
+    try: render([{"op": "layer", "params": {"asset": evil}}]); raise SystemExit("a path was accepted as a picture: " + evil)
+    except urllib.error.HTTPError as e: assert e.code == 422, (evil, e.code)
+recipe = {"version": 1, "steps": [{"id": "r", "op": "resize", "params": {"width": 500, "fit": "inside"}}, {"id": "m", "op": "mask", "params": {"source": "picture"}}], "output": {"format": "png"}}
+r = post("/api/render", {"uploadId": upload, "recipe": recipe})
+assert r.headers["x-hokusai-width"] == "500", r.headers["x-hokusai-width"]
+raw = post("/api/raw/output", {"uploadId": upload, "recipe": recipe, "format": "rgba8", "maxEdge": 100}).read()
+alphas = raw[3::4]
+assert min(alphas) < max(alphas), "a picture mask should produce partial transparency"
+code = json.load(post("/api/code", {"recipe": recipe, "uploadId": upload}))["code"]
+assert ".resize(width: 500, height: 800, fit: .fill)" in code, code
+PY
+ok "image layers, second image by upload, refused paths, picture mask sized to its step"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

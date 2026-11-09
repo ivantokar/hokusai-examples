@@ -48,9 +48,9 @@ struct Params {
     func isDefault(_ name: String) -> Bool { value(name) == specs[name]!.default }
 }
 
-enum Hex {
+public enum Hex {
     /// `#rrggbb` or `#rrggbbaa`.
-    static func parse(_ text: String) -> Color? {
+    public static func parse(_ text: String) -> Color? {
         guard text.hasPrefix("#"), text.count == 7 || text.count == 9 else { return nil }
         let digits = Array(text.dropFirst())
         guard digits.allSatisfy({ $0.isHexDigit }) else { return nil }

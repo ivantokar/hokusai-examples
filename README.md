@@ -8,9 +8,9 @@ Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift libr
 | The same playground served by a **Hummingbird** backend ([Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird)) | [`hummingbird-server/`](hummingbird-server) | works |
 | Shared recipes, operation catalog, Swift code generator, bounded upload store | [`recipes/`](recipes) | works |
 | Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) | works |
-| Inspect view (source facts and metadata verified on exported bytes) | web | works |
+| Inspect view: metadata verified on exported bytes, raw pixels in and out, pages and animation frames | web | works |
 | Runtime Lab (streaming, cancel, queue limits, failure examples) | web | works |
-| Export/PDF view | | planned |
+| Export / PDF view (encoder comparison, raster PDF report, HokusaiPDF document builder) | web | works |
 
 Both backends serve **one** web UI and answer the **same** HTTP API, so you can compare how each integration behaves. The active backend is shown in the top bar.
 
@@ -76,9 +76,13 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 | `GET /api/capabilities` | libvips and Cairo versions, readable and writable formats |
 | `GET /api/status` | running and queued evaluations, the frozen runtime configuration, stored uploads |
 | `POST /api/uploads` (raw body) | `{ uploadId, width, height, orientedWidth, … }` |
-| `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
-| `POST /api/inspect` `{ uploadId, recipe? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
-| `POST /api/code` `{ recipe, target }` | `{ code }` |
+| `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore?, viewable? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
+| `POST /api/pdf` `{ uploadId?, document, previewPage? }` | a vector PDF built with HokusaiPDF, or a PNG of one page decoded from it; `X-Hokusai-Pdf-Pages`, `X-Hokusai-Selectable-Text` |
+| `POST /api/compare` `{ uploadId, recipe }` | the recipe through every encoder this runtime has: size, dimensions, time, or the reason one is missing |
+| `POST /api/raw/output` `{ uploadId, recipe, format, maxEdge? }` | the recipe's raw pixels with `X-Raw-*` headers for the layout, bit depth, stride and alpha convention |
+| `POST /api/raw/input?width&height&format&stride?` (raw body) | declares the bytes as raw pixels, answers a PNG, reads them back in the same layout and reports `X-Raw-Roundtrip` |
+| `POST /api/inspect` `{ uploadId, recipe?, page? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
+| `POST /api/code` `{ recipe, target, uploadId? }` | `{ code }`; with an upload, a mask's size is named in the code |
 | `POST /api/minimal/resize?width=` (raw body) | the minimal integration |
 
 Errors are `{ "error": { "code", "message" } }` with a status you can act on: 404 expired upload, 413 too large, 422 not an image or a recipe that cannot apply (for example a crop outside the image).
@@ -92,7 +96,7 @@ Errors are `{ "error": { "code", "message" } }` with a status you can act on: 40
 ```sh
 swift test --package-path recipes      # catalog, compiler, code generator, upload store
 swift test --package-path macos        # the macOS app's model: undo/redo, revision gating, preview vs export
-scripts/check-snippets.sh              # the Swift the playground prints compiles and runs, for every preset
+scripts/check-snippets.sh              # the Swift the playground prints compiles and runs, for every preset and the PDF template
 scripts/coverage.py --check            # the coverage matrix is current
 scripts/smoke.sh http://127.0.0.1:8081 vapor   # HTTP smoke test against a running backend
 ```
@@ -114,10 +118,15 @@ Never commit an edited checkout.
 
 ## Known limitations
 
+- Layers and masks use pictures from a fixed set of bundled samples or from your second image. A picture mask is stretched to the size of the image entering its step, so the demo measures that size by running the earlier steps (and the generated Swift names it). Convolution kernels, colour matrices and affine transforms are not in the catalog yet.
+
 - Measured by the Runtime Lab on both backends: aborting a `/api/render` request in the browser does not stop the evaluation on the server; it finishes the work first. Treat browser-side cancellation as not proving native cancellation.
 
 - macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
-- Image layers and masks, split compare, and switching between two running backends are planned. The macOS app has numeric crop only.
+- Split compare and switching between two running backends are planned. The macOS app has numeric crop only, no vector document builder yet, and takes its second layer image through a file picker (its output panel does offer the raster PDF and every encoder).
+- Raw pixels: 16-bit values are shown as little-endian, the server's native order here (checked against the 8-bit output); the library has no statistics or histogram API and the demo does not invent one. Animations can be inspected and read frame by frame but not edited or encoded as animations: that is not in the library.
+- Vector documents: pictures come from the bundled samples or your upload; there is no font upload, so text uses the system's sans, serif and monospace. The "selectable text" indicator in the Web UI is a heuristic (the PDF carries a text font with a character map); the unit tests confirm it with a real PDF reader on macOS.
+- Browsers do not display TIFF, HEIF or PDF as images, so the playground shows a labelled PNG decoded from the real bytes; Export always downloads the real file.
 - The playground previews at 1280 px; there is no downsampled-input fast path yet, because it is not equivalent for blur, trim, text and geometry steps.
 - Multi-architecture images are not claimed: build and test on the architecture you run.
 - Fonts: the Docker image bundles DejaVu (free licence) for text; native runs use your system fonts.

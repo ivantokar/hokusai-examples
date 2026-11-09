@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-29 implemented, 9 partial, 21 planned, 59 in total.
+51 implemented, 5 partial, 4 planned, 60 in total.
 
 
 ## Sources
@@ -16,7 +16,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | File URLs | `Hokusai(url:)` | partial | Generated Swift shows it with an input.jpg placeholder; macOS app will open files. The Web demo never reads server paths. |
 | Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response. |
 | Generated text as a source | `Hokusai.text(_:layout:style:)` | planned | Composition view. |
-| Raw pixels | `Hokusai(raw:)` | planned | Inspect lab. |
+| Raw pixels | `Hokusai(raw:)` | implemented | Inspect > Raw pixels (raw input). |
 
 ## Geometry
 
@@ -29,9 +29,9 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Flop (horizontal) | `flop()` | implemented | Playground. |
 | Crop (extract) | `extract(x:y:width:height:)` | implemented | Playground: on-canvas rectangle with handles, keyboard and numeric entry, fixed aspect ratios; edited on the image entering the step. |
 | Smart crop | `smartCrop(width:height:strategy:)` | implemented | Playground. |
-| Extend (canvas) | `extend(...)` | planned | Playground. |
+| Extend (canvas) | `extend(...)` | implemented | Playground: padding per side, colour, edge copy, tiling or mirroring. |
 | Affine | `affine(...)` | planned | Playground. |
-| Trim | `trim(...)` | planned | Playground. |
+| Trim | `trim(...)` | implemented | Playground. |
 
 ## Effects
 
@@ -48,7 +48,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Median | `median(size:)` | implemented | Playground. |
 | Threshold | `threshold(_:grayscale:)` | implemented | Playground. |
 | Modulate | `modulate(brightness:saturation:hue:)` | implemented | Playground. |
-| Linear | `linear(multiply:add:)` | planned | Playground. |
+| Linear | `linear(multiply:add:)` | implemented | Playground. |
 
 ## Advanced pixels
 
@@ -56,18 +56,19 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | --- | --- | --- | --- |
 | Convolution kernels | `convolve(_:)` | planned | Playground. |
 | Colour matrices | `recombine(_:)` | planned | Playground. |
-| Dilate / erode | `dilate(radius:), erode(radius:)` | planned | Playground. |
-| Edge detectors | `edges(_:)` | planned | Playground. |
-| Channel extraction | `extractChannel(_:)` | planned | Playground. |
-| Alpha from a mask | `joinAlpha(_:)` | planned | Playground (needs a second image asset for masks). |
+| Dilate | `dilate(radius:)` | implemented | Playground. |
+| Erode | `erode(radius:)` | implemented | Playground. |
+| Edge detectors | `edges(_:)` | implemented | Playground: Sobel, Scharr, Prewitt, Canny. |
+| Channel extraction | `extractChannel(_:)` | implemented | Playground. |
+| Alpha from a mask | `withAlpha(from:)` | implemented | Playground: the image's own brightness or a picture (stretched to the size entering the step), with threshold, feather and invert; the generated Swift binds the pipeline it is taken from. |
 
 ## Colour and alpha
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Colour-space conversion | `convert(to:)` | planned | Playground. |
-| Ensure alpha | `ensureAlpha(opacity:)` | planned | Playground. |
-| Remove alpha | `removeAlpha()` | planned | Playground. |
+| Colour-space conversion | `convert(to:)` | implemented | Playground. |
+| Ensure alpha | `ensureAlpha(opacity:)` | implemented | Playground. |
+| Remove alpha | `removeAlpha()` | implemented | Playground. |
 | Flatten | `flatten(background:)` | implemented | Playground. |
 
 ## Composition and text
@@ -75,20 +76,20 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
 | Text overlay | `drawText(_:placement:layout:style:)` | partial | Playground: content, size, font, colour, gravity, offsets; layout, stroke, shadow planned. |
-| Image layers, blend, opacity, compositing space | `composite(_:space:)` | planned | Playground (needs extra image assets). |
+| Image layers, blend, opacity, compositing space | `composite(_:space:)` | implemented | Playground: a bundled picture or your second image, width, placement or tiling, twenty blend modes, opacity, sRGB or linear blending. |
 
 ## Encoders
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| JPEG | `jpeg(quality:progressive:)` | partial | Playground output panel; advanced typed options planned. |
-| PNG | `png(compressionLevel:interlaced:)` | partial | Playground output panel; advanced typed options planned. |
-| WebP | `webp(quality:effort:lossless:)` | partial | Playground output panel; advanced typed options planned. |
-| AVIF | `avif(quality:effort:lossless:)` | partial | Playground output panel; advanced typed options planned. |
-| TIFF | `tiff(compression:)` | partial | Playground output panel; advanced typed options planned. |
-| GIF | `gif()` | implemented | Playground output panel. |
-| HEIF | `heif(...)` | planned | Export / PDF view (needs a libvips with HEIF encoding; reported by /api/capabilities). |
-| Raster PDF | `pdf(pageSize:margins:background:)` | planned | Export / PDF view. |
+| JPEG | `jpeg(quality:progressive:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| PNG | `png(compressionLevel:interlaced:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| WebP | `webp(quality:effort:lossless:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| AVIF | `avif(quality:effort:lossless:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| TIFF | `tiff(compression:)` | partial | Playground output panel (compression); Export / PDF view comparison. |
+| GIF | `gif()` | implemented | Playground output panel; Export / PDF view comparison. |
+| HEIF | `heif(options:)` | implemented | Playground output panel (HEVC or AV1, quality, effort, lossless); listed as unavailable with the reason when this libvips has no encoder; a labelled PNG proxy is shown because browsers do not display it. |
+| Raster PDF | `pdf(pageSize:margins:background:)` | implemented | Playground output panel and the Raster PDF report card: page size, orientation, margins, position, background, effective-resolution cap, document properties; preview is page 1 decoded from the real PDF. |
 
 ## Metadata
 
@@ -101,14 +102,14 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Raw input and output | `Hokusai(raw:), raw(...)` | planned | Inspect lab. |
-| Page selection and counts | `InputOptions.page` | planned | Inspect lab. |
+| Raw input and output | `Hokusai(raw:), raw(...)` | implemented | Inspect > Raw pixels: output in every raw format with layout, stride, alpha convention, channel previews and pixel values from the real bytes; input from a generated grid with padded rows, premultiplied alpha, and refused wrong declarations. |
+| Page selection and counts | `InputOptions.page` | implemented | Inspect > Pages: page and frame selector (zero-based API index), thumbnails, page count versus animation, frame delays and loop count; the selection applies to preview, inspection and export. |
 
 ## Vector PDF
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| HokusaiPDF documents | `PDFDocument` | planned | Export / PDF view. |
+| HokusaiPDF documents | `VectorDocument, VectorPage` | implemented | Export / PDF view: multi-page document builder with text and Pango markup, rectangles, lines, gradients, images, page sizes and document properties; selectable text verified with a PDF reader in the tests. Not an editor for existing PDFs; no tables or other layout beyond what HokusaiPDF draws. |
 
 ## Terminals and runtime
 

@@ -3,45 +3,45 @@ import Hokusai
 
 // MARK: - Spec helpers
 
-private func num(_ name: String, _ label: String, _ def: Double, min: Double? = nil, max: Double? = nil, step: Double? = nil,
+func num(_ name: String, _ label: String, _ def: Double, min: Double? = nil, max: Double? = nil, step: Double? = nil,
                  unit: String? = nil, advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .number, default: .number(def), min: min, max: max, step: step, unit: unit, options: nil, advanced: advanced, help: help)
 }
 
-private func int(_ name: String, _ label: String, _ def: Int, min: Int? = nil, max: Int? = nil, unit: String? = nil,
+func int(_ name: String, _ label: String, _ def: Int, min: Int? = nil, max: Int? = nil, unit: String? = nil,
                  advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .integer, default: .number(Double(def)), min: min.map(Double.init), max: max.map(Double.init), step: 1, unit: unit, options: nil, advanced: advanced, help: help)
 }
 
-private func flag(_ name: String, _ label: String, _ def: Bool = false, advanced: Bool = false, help: String? = nil) -> ParamSpec {
+func flag(_ name: String, _ label: String, _ def: Bool = false, advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .boolean, default: .bool(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: advanced, help: help)
 }
 
-private func choice(_ name: String, _ label: String, _ def: String, _ options: [(String, String)], advanced: Bool = false, help: String? = nil) -> ParamSpec {
+func choice(_ name: String, _ label: String, _ def: String, _ options: [(String, String)], advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .choice, default: .string(def), min: nil, max: nil, step: nil, unit: nil,
               options: options.map { Choice(value: $0.0, label: $0.1) }, advanced: advanced, help: help)
 }
 
-private func color(_ name: String, _ label: String, _ def: String, advanced: Bool = false, help: String? = nil) -> ParamSpec {
+func color(_ name: String, _ label: String, _ def: String, advanced: Bool = false, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .color, default: .string(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: advanced, help: help)
 }
 
-private func text(_ name: String, _ label: String, _ def: String, help: String? = nil) -> ParamSpec {
+func text(_ name: String, _ label: String, _ def: String, help: String? = nil) -> ParamSpec {
     ParamSpec(name: name, label: label, kind: .text, default: .string(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: false, help: help)
 }
 
 /// `.name(label: value, ...)`, leaving out arguments that equal the library default.
-private func call(_ name: String, _ args: [(label: String, value: String, include: Bool)]) -> String {
+func call(_ name: String, _ args: [(label: String, value: String, include: Bool)]) -> String {
     let parts = args.filter(\.include).map { $0.label.isEmpty ? $0.value : "\($0.label): \($0.value)" }
     return ".\(name)(\(parts.joined(separator: ", ")))"
 }
 
-private let gravities: [(String, String)] = [
+let gravities: [(String, String)] = [
     ("center", "Center"), ("north", "Top"), ("south", "Bottom"), ("east", "Right"), ("west", "Left"),
     ("northWest", "Top left"), ("northEast", "Top right"), ("southWest", "Bottom left"), ("southEast", "Bottom right"),
 ]
 
-private func gravity(_ name: String) -> Gravity {
+func gravity(_ name: String) -> Gravity {
     switch name {
     case "north": .north
     case "south": .south
@@ -60,17 +60,20 @@ private func gravity(_ name: String) -> Gravity {
 struct OperationDef: Sendable {
     let spec: OperationSpec
     let apply: @Sendable (Hokusai, Params) throws -> Hokusai
+    /// For operations that need pictures or the size of the image entering the step; `apply` is unused then.
+    var contextApply: (@Sendable (Hokusai, Params, StepContext) throws -> Hokusai)? = nil
+    var contextSwift: (@Sendable (Params, PixelSize?) -> String)? = nil
     /// One chained call, for example `.resize(width: 800, fit: .cover)`.
     let swift: @Sendable (Params) -> String
 }
 
-private func op(_ id: String, _ title: String, _ group: OperationGroup, api: String, _ summary: String, params: [ParamSpec] = [],
+func op(_ id: String, _ title: String, _ group: OperationGroup, api: String, _ summary: String, params: [ParamSpec] = [],
                 note: String? = nil, apply: @escaping @Sendable (Hokusai, Params) throws -> Hokusai,
                 swift: @escaping @Sendable (Params) -> String) -> OperationDef {
     OperationDef(spec: OperationSpec(id: id, title: title, group: group, api: api, summary: summary, params: params, previewNote: note), apply: apply, swift: swift)
 }
 
-let allOperations: [OperationDef] = [
+let coreOperations: [OperationDef] = [
     // Geometry
     op("autoOrient", "Auto-orient", .geometry, api: "autoOrient()", "Applies the EXIF orientation so the pixels are upright.",
        apply: { img, _ in img.autoOrient() }, swift: { _ in ".autoOrient()" }),
@@ -281,23 +284,73 @@ func metadataSwift(_ p: Params) -> String? {
     return ".metadataPolicy(MetadataPolicy(\(changed.map { "\($0.0): \(p.bool($0.1) ? ".preserve" : ".remove")" }.joined(separator: ", "))))"
 }
 
+private func opts(_ name: String, _ args: [(label: String, value: String, include: Bool)]) -> String {
+    let parts = args.filter(\.include).map { "\($0.label): \($0.value)" }
+    let type = ["jpeg": "JPEGOptions", "webp": "WebPOptions", "avif": "AVIFOptions", "heif": "HEIFOptions"][name] ?? name
+    return ".\(name)(options: \(type)(\(parts.joined(separator: ", "))))"
+}
+
+private let chromaChoices: [(String, String)] = [("automatic", "Automatic"), ("yuv420", "4:2:0"), ("yuv444", "4:4:4")]
+private func chroma(_ s: String) -> ChromaSubsampling { s == "yuv420" ? .yuv420 : s == "yuv444" ? .yuv444 : .automatic }
+private func depth(_ n: Int) -> HEIFBitDepth { n == 12 ? .twelve : n == 10 ? .ten : .eight }
+
+private func pdfPageSize(_ p: Params) -> PDFPageSize {
+    let orientation: PDFPageOrientation = p.string("orientation") == "landscape" ? .landscape : .portrait
+    switch p.string("pageSize") {
+    case "a4": return .a4(orientation)
+    case "letter": return .letter(orientation)
+    case "custom": return .points(width: p.double("pageWidth"), height: p.double("pageHeight"))
+    default: return .image(dpi: p.double("imageDpi"))
+    }
+}
+
 let allOutputs: [OutputDef] = [
     OutputDef(format: "jpeg", title: "JPEG", mime: "image/jpeg", fileExtension: "jpg",
-              params: [int("quality", "Quality", 82, min: 1, max: 100), flag("progressive", "Progressive")],
-              apply: { img, p in try img.jpeg(quality: p.int("quality"), progressive: p.bool("progressive")) },
-              swift: { p in call("jpeg", [("quality", String(p.int("quality")), true), ("progressive", "true", p.bool("progressive"))]) }),
+              params: [int("quality", "Quality", 82, min: 1, max: 100), flag("progressive", "Progressive"),
+                       choice("chroma", "Chroma subsampling", "automatic", chromaChoices, advanced: true, help: "4:4:4 keeps colour detail at a larger size."),
+                       flag("optimizeCoding", "Optimise Huffman tables", advanced: true, help: "Slightly smaller, slower.")],
+              apply: { img, p in try img.jpeg(options: JPEGOptions(quality: p.int("quality"), progressive: p.bool("progressive"), chromaSubsampling: chroma(p.string("chroma")), optimizeCoding: p.bool("optimizeCoding"))) },
+              swift: { p in
+                if p.isDefault("chroma") && p.isDefault("optimizeCoding") { return call("jpeg", [("quality", String(p.int("quality")), true), ("progressive", "true", p.bool("progressive"))]) }
+                return opts("jpeg", [("quality", String(p.int("quality")), true), ("progressive", "true", p.bool("progressive")), ("chromaSubsampling", "." + p.string("chroma"), !p.isDefault("chroma")), ("optimizeCoding", "true", p.bool("optimizeCoding"))])
+              }),
     OutputDef(format: "png", title: "PNG", mime: "image/png", fileExtension: "png",
-              params: [int("compressionLevel", "Compression", 6, min: 0, max: 9), flag("interlaced", "Interlaced", advanced: true)],
-              apply: { img, p in try img.png(compressionLevel: p.int("compressionLevel"), interlaced: p.bool("interlaced")) },
-              swift: { p in call("png", [("compressionLevel", String(p.int("compressionLevel")), !p.isDefault("compressionLevel")), ("interlaced", "true", p.bool("interlaced"))]) }),
+              params: [int("compressionLevel", "Compression", 6, min: 0, max: 9), flag("interlaced", "Interlaced", advanced: true),
+                       flag("palette", "Quantise to a palette", advanced: true, help: "Smaller files, at most 256 colours. Needs libimagequant, reported by the capabilities."),
+                       int("paletteQuality", "Palette quality", 100, min: 0, max: 100, advanced: true)],
+              apply: { img, p in try img.png(options: PNGOptions(compressionLevel: p.int("compressionLevel"), interlaced: p.bool("interlaced"), palette: p.bool("palette") ? PNGPalette(quality: p.int("paletteQuality")) : nil)) },
+              swift: { p in
+                if !p.bool("palette") { return call("png", [("compressionLevel", String(p.int("compressionLevel")), !p.isDefault("compressionLevel")), ("interlaced", "true", p.bool("interlaced"))]) }
+                return ".png(options: PNGOptions(compressionLevel: \(p.int("compressionLevel")), interlaced: \(p.bool("interlaced")), palette: PNGPalette(quality: \(p.int("paletteQuality")))))"
+              }),
     OutputDef(format: "webp", title: "WebP", mime: "image/webp", fileExtension: "webp",
-              params: [int("quality", "Quality", 82, min: 1, max: 100), int("effort", "Effort", 4, min: 0, max: 6, advanced: true), flag("lossless", "Lossless")],
-              apply: { img, p in try img.webp(quality: p.int("quality"), effort: p.int("effort"), lossless: p.bool("lossless")) },
-              swift: { p in call("webp", [("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless"))]) }),
+              params: [int("quality", "Quality", 82, min: 1, max: 100), int("effort", "Effort", 4, min: 0, max: 6, advanced: true), flag("lossless", "Lossless"),
+                       flag("nearLossless", "Near lossless", advanced: true), flag("smartSubsample", "Smart subsample", advanced: true),
+                       choice("preset", "Preset", "default", ["default", "picture", "photo", "drawing", "icon", "text"].map { ($0, $0) }, advanced: true)],
+              apply: { img, p in
+                let preset: WebPPreset = switch p.string("preset") { case "picture": .picture; case "photo": .photo; case "drawing": .drawing; case "icon": .icon; case "text": .text; default: .default }
+                return try img.webp(options: WebPOptions(quality: p.int("quality"), effort: p.int("effort"), lossless: p.bool("lossless"), nearLossless: p.bool("nearLossless"), smartSubsample: p.bool("smartSubsample"), preset: preset))
+              },
+              swift: { p in
+                if p.isDefault("nearLossless") && p.isDefault("smartSubsample") && p.isDefault("preset") { return call("webp", [("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless"))]) }
+                return opts("webp", [("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless")),
+                                     ("nearLossless", "true", p.bool("nearLossless")), ("smartSubsample", "true", p.bool("smartSubsample")), ("preset", "." + p.string("preset"), !p.isDefault("preset"))])
+              }),
     OutputDef(format: "avif", title: "AVIF", mime: "image/avif", fileExtension: "avif",
-              params: [int("quality", "Quality", 50, min: 1, max: 100), int("effort", "Effort", 4, min: 0, max: 9, advanced: true), flag("lossless", "Lossless")],
-              apply: { img, p in try img.avif(quality: p.int("quality"), effort: p.int("effort"), lossless: p.bool("lossless")) },
-              swift: { p in call("avif", [("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless"))]) }),
+              params: [int("quality", "Quality", 50, min: 1, max: 100), int("effort", "Effort", 4, min: 0, max: 9, advanced: true), flag("lossless", "Lossless"),
+                       choice("bitDepth", "Bit depth", "8", [("8", "8"), ("10", "10"), ("12", "12")], advanced: true),
+                       choice("chroma", "Chroma subsampling", "automatic", chromaChoices, advanced: true)],
+              apply: { img, p in try img.avif(options: AVIFOptions(quality: p.int("quality"), effort: p.int("effort"), lossless: p.bool("lossless"), bitDepth: depth(Int(p.string("bitDepth")) ?? 8), chromaSubsampling: chroma(p.string("chroma")))) },
+              swift: { p in
+                if p.isDefault("bitDepth") && p.isDefault("chroma") { return call("avif", [("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless"))]) }
+                return opts("avif", [("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless")),
+                                     ("bitDepth", p.string("bitDepth") == "10" ? ".ten" : p.string("bitDepth") == "12" ? ".twelve" : ".eight", !p.isDefault("bitDepth")), ("chromaSubsampling", "." + p.string("chroma"), !p.isDefault("chroma"))])
+              }),
+    OutputDef(format: "heif", title: "HEIF", mime: "image/heif", fileExtension: "heic",
+              params: [choice("compression", "Compression", "hevc", [("hevc", "HEVC"), ("av1", "AV1")], help: "Which encoders exist depends on the libheif build; this runtime's capabilities say. A missing one is reported as an error."),
+                       int("quality", "Quality", 50, min: 1, max: 100), int("effort", "Effort", 4, min: 0, max: 9, advanced: true), flag("lossless", "Lossless")],
+              apply: { img, p in try img.heif(options: HEIFOptions(compression: p.string("compression") == "av1" ? .av1 : .hevc, quality: p.int("quality"), effort: p.int("effort"), lossless: p.bool("lossless"))) },
+              swift: { p in opts("heif", [("compression", "." + p.string("compression"), true), ("quality", String(p.int("quality")), true), ("effort", String(p.int("effort")), !p.isDefault("effort")), ("lossless", "true", p.bool("lossless"))]) }),
     OutputDef(format: "tiff", title: "TIFF", mime: "image/tiff", fileExtension: "tiff",
               params: [choice("compression", "Compression", "none", [("none", "None"), ("deflate", "Deflate"), ("lzw", "LZW"), ("packBits", "PackBits")])],
               apply: { img, p in
@@ -307,4 +360,41 @@ let allOutputs: [OutputDef] = [
               swift: { p in call("tiff", [("compression", "." + p.string("compression"), !p.isDefault("compression"))]) }),
     OutputDef(format: "gif", title: "GIF", mime: "image/gif", fileExtension: "gif", params: [],
               apply: { img, _ in try img.gif() }, swift: { _ in ".gif()" }),
+    OutputDef(format: "pdf", title: "PDF (raster page)", mime: "application/pdf", fileExtension: "pdf",
+              params: [
+                choice("pageSize", "Page", "a4", [("image", "Same size as the image"), ("a4", "A4"), ("letter", "US Letter"), ("custom", "Custom (points)")]),
+                choice("orientation", "Orientation", "portrait", [("portrait", "Portrait"), ("landscape", "Landscape")], help: "For A4 and Letter."),
+                int("margins", "Margins", 36, min: 0, max: 2000, unit: "pt", help: "1 point is 1/72 inch."),
+                choice("anchor", "Image position", "center", gravities),
+                color("background", "Page background", "#ffffff"),
+                text("title", "Document title", ""),
+                text("author", "Author", ""),
+                int("imageDpi", "Image resolution", 72, min: 1, max: 2400, unit: "dpi", advanced: true, help: "Only for “Same size as the image”: pixels per inch."),
+                int("pageWidth", "Custom width", 595, min: 1, max: 14_400, unit: "pt", advanced: true), int("pageHeight", "Custom height", 842, min: 1, max: 14_400, unit: "pt", advanced: true),
+                int("maxEffectiveDpi", "Cap effective resolution", 0, min: 0, max: 2400, unit: "dpi", advanced: true, help: "0 keeps every pixel. A cap downsamples images placed on the page."),
+              ],
+              apply: { img, p in
+                var meta = PDFDocumentMetadata()
+                if !p.string("title").isEmpty { meta.title = p.string("title") }
+                if !p.string("author").isEmpty { meta.author = p.string("author") }
+                let m = Double(p.int("margins"))
+                return try img.pdf(pageSize: pdfPageSize(p), margins: .all(m), anchor: gravity(p.string("anchor")), background: p.color("background"),
+                                   maxEffectiveDPI: p.int("maxEffectiveDpi") == 0 ? nil : Double(p.int("maxEffectiveDpi")),
+                                   metadata: meta == PDFDocumentMetadata() ? nil : meta)
+              },
+              swift: { p in
+                let size: String = switch p.string("pageSize") {
+                case "a4": p.string("orientation") == "landscape" ? ".a4(.landscape)" : ".a4()"
+                case "letter": p.string("orientation") == "landscape" ? ".letter(.landscape)" : ".letter()"
+                case "custom": ".points(width: \(p.int("pageWidth")), height: \(p.int("pageHeight")))"
+                default: ".image(dpi: \(p.int("imageDpi")))"
+                }
+                var meta: [String] = []
+                if !p.string("title").isEmpty { meta.append("title: \(swiftLiteral(p.string("title")))") }
+                if !p.string("author").isEmpty { meta.append("author: \(swiftLiteral(p.string("author")))") }
+                return call("pdf", [("pageSize", size, true), ("margins", ".all(\(p.int("margins")))", p.int("margins") != 0),
+                                    ("anchor", "." + p.string("anchor"), !p.isDefault("anchor")), ("background", Hex.swift(p.string("background")), true),
+                                    ("maxEffectiveDPI", String(p.int("maxEffectiveDpi")), p.int("maxEffectiveDpi") != 0),
+                                    ("metadata", "PDFDocumentMetadata(\(meta.joined(separator: ", ")))", !meta.isEmpty)])
+              }),
 ]

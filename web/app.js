@@ -1,13 +1,11 @@
 // One UI for every backend. The server owns image processing; this file only edits a recipe,
 // asks the server to render it, and shows the result. No framework, no build step.
 import { initLab } from "./lab.js";
+import { initExport } from "./export.js";
+import { initRaw, initPages } from "./raw-pages.js";
+import { el, clone, uid, fmtBytes, apiError, field } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
-const el = (tag, props = {}, ...children) => {
-  const node = Object.assign(document.createElement(tag), props);
-  for (const c of children) node.append(c);
-  return node;
-};
 
 const PREVIEW_EDGE = 1280;
 const DEBOUNCE_MS = 160;
@@ -22,12 +20,10 @@ const state = {
   history: [], future: [],
   full: false,             // render the result at its real size instead of fitting the preview
   view: "result", lastGood: null, resultUrl: null,
-  section: "playground", target: "core", tab: "swift", codeText: "", facts: {},
+  section: "playground", assets: {}, page: 0, itab: "metadata", target: "core", tab: "swift", codeText: "", facts: {},
 };
 
 const ops = () => new Map(state.catalog.operations.map((o) => [o.id, o]));
-const clone = (v) => JSON.parse(JSON.stringify(v));
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
 
 // ---------- status ----------
 function setStatus(text, kind = "") {
@@ -58,7 +54,7 @@ async function openBlob(blob, name) {
   try {
     const res = await fetch("/api/uploads", { method: "POST", body: blob });
     if (!res.ok) throw await apiError(res);
-    state.upload = { ...(await res.json()), name };
+    state.upload = { ...(await res.json()), name }; state.page = 0;
     state.originalBlob = blob;
     if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
     state.originalUrl = URL.createObjectURL(blob);
@@ -72,11 +68,6 @@ async function openBlob(blob, name) {
   }
 }
 
-async function apiError(res) {
-  let message = `The server answered ${res.status}.`, code = "";
-  try { const b = await res.json(); message = b.error.message; code = b.error.code; } catch { /* keep default */ }
-  return Object.assign(new Error(message), { code, status: res.status });
-}
 
 async function openSample(name) {
   const blob = await fetch(`/samples/${name}`).then((r) => r.blob());
@@ -176,9 +167,10 @@ function drawSettings() {
   const common = spec.params.filter((p) => !p.advanced), adv = spec.params.filter((p) => p.advanced);
   const nodes = [el("p", { className: "api", textContent: spec.api })];
   if (spec.previewNote) nodes.push(el("p", { className: "note", textContent: spec.previewNote }));
-  nodes.push(...common.map((p) => field(p, step.params, (v) => setParam(step.id, p, v))));
-  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => setParam(step.id, p, v)))));
+  nodes.push(...common.map((p) => field(p, step.params, (v) => { setParam(step.id, p, v); if (p.name === "asset") drawSettings(); })));
+  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => { setParam(step.id, p, v); if (p.name === "asset") drawSettings(); }))));
   if (step.op === "crop") nodes.push(cropControls(step));
+  if ((step.op === "layer" || step.op === "mask") && (step.params.asset ?? "") === "second") nodes.push(secondImageControl());
   if (spec.params.length) { const r = el("button", { type: "button", className: "btn small", textContent: "Reset to defaults" }); r.onclick = () => { edit((rr) => { rr.steps.find((s) => s.id === step.id).params = {}; }); drawSettings(); }; nodes.push(r); }
   box.replaceChildren(...nodes);
 }
@@ -193,52 +185,35 @@ function setParam(stepId, p, value) {
   changed(false);
 }
 
-function field(p, params, onChange) {
-  const value = p.name in params ? params[p.name] : p.default;
-  const id = "f-" + uid();
-  const wrap = el("div", { className: "field" });
-  const label = el("label", { htmlFor: id }, p.label, p.unit ? el("span", { className: "unit", textContent: p.unit }) : "");
-  wrap.append(label);
-  if (p.kind === "number" || p.kind === "integer") {
-    const num = el("input", { type: "number", id, value, min: p.min ?? "", max: p.max ?? "", step: p.step ?? (p.kind === "integer" ? 1 : "any") });
-    const range = (p.min != null && p.max != null && p.max - p.min <= 100000) ? el("input", { type: "range", min: p.min, max: p.max, step: p.step ?? 1, value, tabIndex: -1 }) : null;
-    range?.setAttribute("aria-hidden", "true");
-    num.dataset.param = p.name; if (range) range.dataset.param = p.name;
-    const commit = (raw) => { const n = Number(raw); if (Number.isFinite(n) && raw !== "") onChange(n); };
-    num.oninput = () => { if (range) range.value = num.value; commit(num.value); };
-    if (range) range.oninput = () => { num.value = range.value; commit(range.value); };
-    wrap.append(el("div", { className: "row" }, ...(range ? [range, num] : [num])));
-  } else if (p.kind === "boolean") {
-    const box = el("input", { type: "checkbox", id, checked: !!value }); box.onchange = () => onChange(box.checked);
-    wrap.append(box);
-  } else if (p.kind === "choice") {
-    const sel = el("select", { id }, ...p.options.map((o) => el("option", { value: o.value, textContent: o.label, selected: o.value === value })));
-    sel.onchange = () => onChange(sel.value); wrap.append(sel);
-  } else if (p.kind === "color") {
-    const hex = String(value); const rgb = hex.slice(0, 7); const a = hex.length === 9 ? parseInt(hex.slice(7), 16) : 255;
-    const picker = el("input", { type: "color", id, value: rgb });
-    const alpha = el("input", { type: "range", min: 0, max: 255, value: a }); alpha.setAttribute("aria-label", `${p.label} opacity`);
-    const emit = () => onChange(picker.value + (Number(alpha.value) === 255 ? "" : Number(alpha.value).toString(16).padStart(2, "0")));
-    picker.oninput = emit; alpha.oninput = emit;
-    wrap.append(el("div", { className: "row" }, picker, alpha));
-  } else {
-    const input = el("input", { type: "text", id, value, maxLength: 2000 }); input.oninput = () => onChange(input.value); wrap.append(input);
-  }
-  if (p.help) wrap.append(el("div", { className: "help", textContent: p.help }));
-  return wrap;
+// ---------- a second picture for layers and masks ----------
+function secondImageControl() {
+  const input = el("input", { type: "file", accept: "image/*", id: "second-file" });
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    try {
+      const res = await fetch("/api/uploads", { method: "POST", body: file });
+      if (!res.ok) throw await apiError(res);
+      state.assets.second = (await res.json()).uploadId; state.secondName = file.name;
+      drawSettings(); changed(false);
+    } catch (e) { setStatus(e.message, "error"); }
+  };
+  return el("div", { className: "field" }, el("label", { htmlFor: "second-file" }, "Second image"),
+    el("div", { className: "help", textContent: state.assets.second ? `Using ${state.secondName ?? "your second image"} (kept on the server for a few minutes).` : "Choose the picture to place. It is uploaded like the main image and forgotten after a while." }), input);
 }
 
 // ---------- output ----------
+function setOutputParam(p, v) {
+  if (coalesce !== "out" + p.name) { state.history.push(clone(state.recipe)); state.future = []; coalesce = "out" + p.name; }
+  clearTimeout(setParam.t); setParam.t = setTimeout(() => { coalesce = null; }, 600);
+  if (v === p.default) delete state.recipe.output.options[p.name]; else state.recipe.output.options[p.name] = v;
+  changed(false);
+}
+
 function drawOutput() {
   const out = state.recipe.output; const spec = state.catalog.outputs.find((o) => o.format === out.format);
-  const sel = el("select", { id: "fmt", "aria-label": "Format" }, ...state.catalog.outputs.map((o) => el("option", { value: o.format, textContent: o.title, selected: o.format === out.format })));
+  const sel = el("select", { id: "fmt", "aria-label": "Format" }, ...state.catalog.outputs.map((o) => el("option", { value: o.format, textContent: o.title + (o.available ? "" : " (not in this runtime)"), disabled: !o.available, selected: o.format === out.format })));
   sel.onchange = () => edit((r) => { r.output = { format: sel.value, options: {} }; });
-  const fields = spec.params.map((p) => field(p, out.options, (v) => {
-    if (coalesce !== "out" + p.name) { state.history.push(clone(state.recipe)); state.future = []; coalesce = "out" + p.name; }
-    clearTimeout(setParam.t); setParam.t = setTimeout(() => { coalesce = null; }, 600);
-    if (v === p.default) delete state.recipe.output.options[p.name]; else state.recipe.output.options[p.name] = v;
-    changed(false);
-  }));
+  const fields = spec.params.map((p) => field(p, out.options, (v) => setOutputParam(p, v)));
   const keep = document.activeElement?.closest?.("#output");
   if (keep && document.activeElement.tagName !== "SELECT") return;     // do not rebuild a control the user is dragging
   $("output").replaceChildren(el("div", { className: "field" }, sel), ...fields);
@@ -257,7 +232,7 @@ async function render(retry = true) {
   const rev = state.revision; inflight?.abort(); inflight = new AbortController();
   const started = performance.now();
   try {
-    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE };
+    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true, page: state.page || null, assets: state.assets };
     const res = await fetch("/api/render", { method: "POST", body: JSON.stringify(body), signal: inflight.signal });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob();
@@ -266,10 +241,13 @@ async function render(retry = true) {
     if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
     state.resultUrl = url;
     const h = (n) => res.headers.get(n);
-    state.lastGood = { width: +h("x-hokusai-width"), height: +h("x-hokusai-height"), bytes: blob.size, mime: blob.type, server: parseFloat((h("server-timing") || "").split("dur=")[1]), request: performance.now() - started, backend: h("x-hokusai-backend"), full: state.full };
+    state.lastGood = { width: +h("x-hokusai-width"), height: +h("x-hokusai-height"), bytes: blob.size, mime: blob.type, server: parseFloat((h("server-timing") || "").split("dur=")[1]), request: performance.now() - started, backend: h("x-hokusai-backend"), full: state.full,
+      // When the browser cannot show the encoded format the server sends a PNG decoded from the real bytes; the real file is what Export gives.
+      proxyOf: h("x-hokusai-proxy-of"), realBytes: +h("x-hokusai-bytes"), pdfPages: h("x-hokusai-pdf-pages"), pdfSize: h("x-hokusai-pdf-width") ? `${(+h("x-hokusai-pdf-width")).toFixed(0)} × ${(+h("x-hokusai-pdf-height")).toFixed(0)} pt` : null };
     showImage(); $("updating").hidden = true;
     const f = state.lastGood;
-    setStatus(`${f.full ? "Full size" : "Preview"} ${f.width} × ${f.height} · ${fmtBytes(f.bytes)}${f.full ? "" : " (preview, not the export size)"}`);
+    if (f.proxyOf) setStatus(`Viewable proxy (PNG decoded from the real ${f.proxyOf}${f.pdfPages ? `, page 1 of ${f.pdfPages}, ${f.pdfSize}` : ""}) · the real file is ${fmtBytes(f.realBytes)}${f.full ? "" : " at preview size"}`);
+    else setStatus(`${f.full ? "Full size" : "Preview"} ${f.width} × ${f.height} · ${fmtBytes(f.bytes)}${f.full ? "" : " (preview, not the export size)"}`);
     drawFacts();
   } catch (e) {
     if (e.name === "AbortError" || rev !== state.revision) return;
@@ -301,7 +279,7 @@ function scheduleCode() { clearTimeout(codeTimer); codeTimer = setTimeout(loadCo
 async function loadCode() {
   const rev = ++codeRev;
   try {
-    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target }) });
+    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target, uploadId: state.upload?.uploadId ?? null, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const { code } = await res.json(); if (rev !== codeRev) return;
     state.codeText = code; drawCode();
@@ -321,7 +299,8 @@ function drawFacts() {
   const rows = [
     ["Backend", `${state.backend.backend} (Hokusai ${state.backend.hokusai})`],
     ["Source", `${u.width} × ${u.height} stored · ${u.orientedWidth} × ${u.orientedHeight} upright · ${u.format ?? "?"} · ${fmtBytes(u.bytes)}`],
-    [f.full ? "Result (full size)" : "Preview", `${f.width} × ${f.height} · ${fmtBytes(f.bytes)}`],
+    [f.proxyOf ? "Proxy shown" : f.full ? "Result (full size)" : "Preview", `${f.width} × ${f.height} · ${fmtBytes(f.bytes)}${f.proxyOf ? ` (a PNG standing in for ${f.proxyOf})` : ""}`],
+    ...(f.proxyOf ? [["Real encoded file", `${fmtBytes(f.realBytes)}${f.pdfPages ? ` · ${f.pdfPages} page(s), ${f.pdfSize}` : ""}`]] : []),
     ["Server work", isNaN(f.server) ? "n/a" : `${f.server.toFixed(0)} ms (evaluate + encode)`],
     ["Request total", `${f.request.toFixed(0)} ms (includes network and queueing)`],
     ["Output", `${f.mime} · ${f.full ? "this is the export size" : "Press Full size or Export for the real size and bytes"}`],
@@ -333,7 +312,7 @@ function drawFacts() {
 async function doExport() {
   setStatus("Rendering the export from the original…");
   try {
-    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe }) });
+    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); const spec = state.catalog.outputs.find((o) => o.format === state.recipe.output.format);
     const base = (state.upload.name || "image").replace(/\.[^.]+$/, "");
@@ -343,7 +322,6 @@ async function doExport() {
 }
 
 // ---------- helpers & wiring ----------
-function fmtBytes(n) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1048576).toFixed(2)} MiB`; }
 
 function loadPreset(id) {
   const p = state.catalog.presets.find((x) => x.id === id); if (!p) return;
@@ -367,7 +345,8 @@ function wire() {
   $("export").onclick = doExport;
   $("accurate").onclick = () => { state.full = !state.full; $("accurate").textContent = state.full ? "Fit preview" : "Full size"; changed(false); };
   $("show-result").onclick = () => setView("result"); $("show-original").onclick = () => setView("original"); $("show-crop").onclick = () => setView("crop");
-  $("nav-play").onclick = () => setSection("playground"); $("nav-inspect").onclick = () => setSection("inspect"); $("nav-lab").onclick = () => setSection("lab");
+  $("nav-play").onclick = () => setSection("playground");
+  for (const b of document.querySelectorAll("#inspect-tabs button")) b.onclick = () => setInspectTab(b.dataset.itab); $("nav-inspect").onclick = () => setSection("inspect"); $("nav-lab").onclick = () => setSection("lab"); $("nav-export").onclick = () => setSection("export");
   $("image").addEventListener("load", drawCrop); window.addEventListener("resize", drawCrop);
   wireCrop();
   const zoom = (z) => { state.zoom100 = z; $("canvas").classList.toggle("actual", z); $("zoom-fit").classList.toggle("on", !z); $("zoom-100").classList.toggle("on", z); $("zoom-fit").setAttribute("aria-pressed", !z); $("zoom-100").setAttribute("aria-pressed", z); showImage(); };
@@ -396,13 +375,32 @@ function wire() {
 connect().then(() => { wire(); drawOutput(); drawSteps(); drawSettings(); loadCode(); drawCode(); }).catch(() => {});
 
 // ---------- sections ----------
-let lab = null;
+let lab = null, exportView = null, rawView = null, pagesView = null;
+function setInspectTab(name) {
+  state.itab = name;
+  for (const b of document.querySelectorAll("#inspect-tabs button")) { const on = b.dataset.itab === name; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
+  $("inspect-body").hidden = name !== "metadata"; $("raw-body").hidden = name !== "raw"; $("pages-body").hidden = name !== "pages";
+  const ctx = { state, recipe: () => state.recipe, setPage: (p) => { state.page = p; changed(false); } };
+  if (name === "metadata") loadInspect();
+  if (name === "raw") { rawView ??= initRaw($("raw-body"), ctx); rawView.show(); }
+  if (name === "pages") { pagesView ??= initPages($("pages-body"), ctx); pagesView.show(); }
+}
+function exportContext() {
+  return {
+    state,
+    useFormat: (format) => edit((r) => { r.output = { format, options: {} }; }),
+    setOutputParam,
+    onUploadNeeded: () => state.upload,
+    recipe: () => state.recipe,
+  };
+}
 function setSection(name) {
   state.section = name;
-  $("stage").hidden = name !== "playground"; $("inspect").hidden = name !== "inspect"; $("lab").hidden = name !== "lab";
+  $("stage").hidden = name !== "playground"; $("inspect").hidden = name !== "inspect"; $("lab").hidden = name !== "lab"; $("export-view").hidden = name !== "export";
+  if (name === "export") { exportView ??= initExport($("export-view"), exportContext()); exportView.show(); } else exportView?.hide();
   if (name === "lab") { lab ??= initLab($("lab")); lab.show(); } else lab?.hide();
-  for (const [id, n] of [["nav-play", "playground"], ["nav-inspect", "inspect"], ["nav-lab", "lab"]]) { $(id).classList.toggle("active", name === n); if (name === n) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current"); }
-  if (name === "inspect") { loadInspect(); }
+  for (const [id, n] of [["nav-play", "playground"], ["nav-inspect", "inspect"], ["nav-lab", "lab"], ["nav-export", "export"]]) { $(id).classList.toggle("active", name === n); if (name === n) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current"); }
+  if (name === "inspect") setInspectTab(state.itab);
 }
 
 function setView(v) {
@@ -414,12 +412,12 @@ function setView(v) {
 
 // ---------- inspect ----------
 let inspectTimer = null, inspectRev = 0;
-function scheduleInspect() { if (state.section !== "inspect" || !state.upload) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
+function scheduleInspect() { if (state.section !== "inspect" || state.itab !== "metadata" || !state.upload) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
 async function loadInspect() {
   if (!state.upload) { $("inspect-body").replaceChildren(el("p", { className: "empty", textContent: "Open an image to inspect it." })); return; }
   const rev = ++inspectRev;
   try {
-    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe }) });
+    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const data = await res.json(); if (rev !== inspectRev) return;
     drawInspect(data);
@@ -483,7 +481,7 @@ async function ensureCropBase() {
   const rev = ++crop.rev; crop.ctrl?.abort(); crop.ctrl = new AbortController();
   try {
     const recipe = clone(state.recipe); recipe.output = { format: "webp", options: { quality: 90 } };
-    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id }) });
+    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); if (rev !== crop.rev) return;
     if (crop.base?.url) URL.revokeObjectURL(crop.base.url);

@@ -15,7 +15,7 @@
       <button class="tab active" id="nav-play" aria-current="page">Playground</button>
       <button class="tab" id="nav-recipes" aria-haspopup="true">Recipes</button>
       <button class="tab" id="nav-inspect">Inspect</button>
-      <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Export / PDF</button>
+      <button class="tab" id="nav-export">Export / PDF</button>
       <button class="tab" id="nav-lab">Runtime Lab</button>
     </nav>
     <div class="spacer"></div>
@@ -84,9 +84,17 @@
         <h1>Inspect</h1>
         <p class="muted">Facts read back from the original upload and from the bytes the current recipe really exports. Change the output metadata settings on the left and watch the right column.</p>
       </div>
+      <div class="seg" id="inspect-tabs" role="group" aria-label="Inspect view">
+        <button data-itab="metadata" class="on" aria-pressed="true">Metadata</button>
+        <button data-itab="raw" aria-pressed="false">Raw pixels</button>
+        <button data-itab="pages" aria-pressed="false">Pages</button>
+      </div>
       <div id="inspect-body" class="inspect-grid"></div>
+      <div id="raw-body" hidden></div>
+      <div id="pages-body" hidden></div>
     </section>
     <section class="inspect" id="lab" aria-label="Runtime Lab" hidden></section>
+    <section class="inspect" id="export-view" aria-label="Export and PDF" hidden></section>
 
     <aside class="panel right" aria-label="Settings">
       <h2 id="settings-title">Settings</h2>

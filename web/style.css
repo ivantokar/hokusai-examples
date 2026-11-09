@@ -149,3 +149,34 @@ details.adv summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; 
 .lab-out th, .lab-out td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; vertical-align: top; }
 .lab-out th { font-weight: 500; color: var(--muted); }
 .lab-out thead th { color: var(--ink); font-size: 12px; }
+
+/* export and pdf */
+.lab-card.wide { grid-column: 1 / -1; }
+.vec { display: grid; grid-template-columns: 250px minmax(0, 1fr) 290px; gap: 14px; margin: 10px 0; align-items: start; }
+.vec-pages .seg { margin-bottom: 8px; flex-wrap: wrap; }
+.vec-items { margin-top: 10px; }
+.vec-items select { width: 100%; margin-top: 8px; }
+.vec-preview { text-align: center; }
+.pdf-page { max-width: 100%; max-height: 560px; border: 1px solid var(--line); box-shadow: 0 6px 20px #0003; background: #fff; }
+.vec-settings { max-height: 560px; overflow: auto; padding-right: 4px; }
+.vec-settings h3 { margin: 0 0 4px; font-family: "DM Sans", Inter, sans-serif; }
+.vec-code { height: 220px; border-radius: 8px; }
+.facts-inline { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0; text-align: left; }
+.facts-inline dt { color: var(--muted); } .facts-inline dd { margin: 0; font-variant-numeric: tabular-nums; }
+.pdf-form .field select, .pdf-form .field input[type=text] { max-width: 100%; }
+@media (max-width: 1100px) { .vec { grid-template-columns: 1fr; } }
+
+/* inspect: raw and pages */
+#inspect-tabs { margin: 10px 0 4px; }
+.raw-view { margin-top: 8px; }
+.raw-canvas { image-rendering: pixelated; border: 1px solid var(--line); background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 12px 12px; }
+.raw-main { width: min(100%, 320px); height: auto; display: block; cursor: crosshair; }
+.raw-probe { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; min-height: 2.6em; margin: 6px 0; color: var(--muted); }
+.raw-chans { display: flex; gap: 10px; flex-wrap: wrap; }
+.raw-chans figure, .raw-compare figure, .page-thumbs figure { margin: 0; text-align: center; }
+.raw-chans .raw-canvas { width: 96px; height: auto; }
+.raw-chans figcaption, .raw-compare figcaption, .page-thumbs figcaption { color: var(--muted); font-size: 12px; }
+.raw-input-img { width: 192px; height: 192px; image-rendering: pixelated; border: 1px solid var(--line); }
+.page-thumbs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.raw-thumb { max-width: 140px; max-height: 110px; border: 1px solid var(--line); background: #fff; }
+.lab-out table th { width: 40%; }
