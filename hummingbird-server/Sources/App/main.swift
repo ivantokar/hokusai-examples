@@ -28,12 +28,12 @@ func failure(_ error: Error) -> Response {
     return jsonResponse(DemoAPI.errorJSON(code: "internal", message: "Something went wrong."), status: .internalServerError)
 }
 
-let widthField = HTTPField.Name("X-Hokusai-Width")!
-let heightField = HTTPField.Name("X-Hokusai-Height")!
-let bytesField = HTTPField.Name("X-Hokusai-Bytes")!
-let backendField = HTTPField.Name("X-Hokusai-Backend")!
-let timingField = HTTPField.Name("Server-Timing")!
-let exposeField = HTTPField.Name("Access-Control-Expose-Headers")!
+
+func fields(_ dict: [String: String]) -> HTTPFields {
+    var fields = HTTPFields()
+    for (name, value) in dict { if let name = HTTPField.Name(name) { fields.append(HTTPField(name: name, value: value)) } }
+    return fields
+}
 
 func collect(_ request: Request, limit: Int) async throws -> Data {
     Data(buffer: try await request.body.collect(upTo: limit))
@@ -92,12 +92,20 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     apiRoutes.post("render") { request, _ -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(try await collect(request, limit: 1 << 20)))
-            return Response(status: .ok, headers: [
-                .contentType: result.mime, .cacheControl: "no-store",
-                widthField: String(result.width), heightField: String(result.height), bytesField: String(result.data.count),
-                backendField: api.backend, timingField: "render;dur=\(String(format: "%.1f", result.serverMilliseconds))",
-                exposeField: "X-Hokusai-Width, X-Hokusai-Height, X-Hokusai-Bytes, X-Hokusai-Backend, Server-Timing",
-            ], body: .init(byteBuffer: ByteBuffer(data: result.data)))
+            return Response(status: .ok, headers: fields(result.headers(backend: api.backend)), body: .init(byteBuffer: ByteBuffer(data: result.data)))
+        } catch { return failure(error) }
+    }
+    apiRoutes.post("pdf") { request, _ -> Response in
+        do {
+            let result = try await api.pdf(try api.decodePDFRequest(try await collect(request, limit: 1 << 20)))
+            return Response(status: .ok, headers: fields(result.headers(backend: api.backend)), body: .init(byteBuffer: ByteBuffer(data: result.data)))
+        } catch { return failure(error) }
+    }
+    apiRoutes.post("compare") { request, _ -> Response in
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe }
+        do {
+            let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
+            return jsonResponse(try await api.compare(uploadId: body.uploadId, recipe: body.recipe))
         } catch { return failure(error) }
     }
 
@@ -119,5 +127,5 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
 try Hokusai.configure(DemoAPI.runtimeConfiguration())
 try Hokusai.initialize()
 
-let app = Application(router: buildRouter(api: DemoAPI(backend: backend)), configuration: .init(address: .hostname(host, port: port)))
+let app = Application(router: buildRouter(api: DemoAPI(backend: backend, fixtures: URL(fileURLWithPath: fixturesRoot))), configuration: .init(address: .hostname(host, port: port)))
 try await app.runService()

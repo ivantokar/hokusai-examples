@@ -29,6 +29,7 @@ public enum ParamKind: String, Codable, Sendable { case number, integer, boolean
 public struct Choice: Codable, Hashable, Sendable {
     public let value: String
     public let label: String
+    public init(value: String, label: String) { self.value = value; self.label = label }
 }
 
 /// Describes one control: its type, unit, default and range. The Web UI is generated from this.

@@ -12,6 +12,8 @@ here = sys.argv[1]
 for item in json.load(open("manifest.json")):
     run = tempfile.mkdtemp()
     shutil.copy(os.path.join(here, "fixtures", item["sample"]), os.path.join(run, "input.jpg"))
+    for name in os.listdir(os.path.join(here, "fixtures")):      # documents place these pictures by name
+        shutil.copy(os.path.join(here, "fixtures", name), os.path.join(run, name))
     r = subprocess.run([os.path.abspath(".build/debug/" + item["target"])], cwd=run, capture_output=True, text=True)
     out = os.path.join(run, item["output"])
     if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 100:

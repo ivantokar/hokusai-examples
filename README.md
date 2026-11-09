@@ -10,7 +10,7 @@ Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift libr
 | Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) | works |
 | Inspect view (source facts and metadata verified on exported bytes) | web | works |
 | Runtime Lab (streaming, cancel, queue limits, failure examples) | web | works |
-| Export/PDF view | | planned |
+| Export / PDF view (encoder comparison, raster PDF report, HokusaiPDF document builder) | web | works |
 
 Both backends serve **one** web UI and answer the **same** HTTP API, so you can compare how each integration behaves. The active backend is shown in the top bar.
 
@@ -76,7 +76,9 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 | `GET /api/capabilities` | libvips and Cairo versions, readable and writable formats |
 | `GET /api/status` | running and queued evaluations, the frozen runtime configuration, stored uploads |
 | `POST /api/uploads` (raw body) | `{ uploadId, width, height, orientedWidth, … }` |
-| `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
+| `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore?, viewable? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
+| `POST /api/pdf` `{ uploadId?, document, previewPage? }` | a vector PDF built with HokusaiPDF, or a PNG of one page decoded from it; `X-Hokusai-Pdf-Pages`, `X-Hokusai-Selectable-Text` |
+| `POST /api/compare` `{ uploadId, recipe }` | the recipe through every encoder this runtime has: size, dimensions, time, or the reason one is missing |
 | `POST /api/inspect` `{ uploadId, recipe? }` | facts about the original and, with a recipe, about the bytes it exports, read back |
 | `POST /api/code` `{ recipe, target }` | `{ code }` |
 | `POST /api/minimal/resize?width=` (raw body) | the minimal integration |
@@ -92,7 +94,7 @@ Errors are `{ "error": { "code", "message" } }` with a status you can act on: 40
 ```sh
 swift test --package-path recipes      # catalog, compiler, code generator, upload store
 swift test --package-path macos        # the macOS app's model: undo/redo, revision gating, preview vs export
-scripts/check-snippets.sh              # the Swift the playground prints compiles and runs, for every preset
+scripts/check-snippets.sh              # the Swift the playground prints compiles and runs, for every preset and the PDF template
 scripts/coverage.py --check            # the coverage matrix is current
 scripts/smoke.sh http://127.0.0.1:8081 vapor   # HTTP smoke test against a running backend
 ```
@@ -117,7 +119,9 @@ Never commit an edited checkout.
 - Measured by the Runtime Lab on both backends: aborting a `/api/render` request in the browser does not stop the evaluation on the server; it finishes the work first. Treat browser-side cancellation as not proving native cancellation.
 
 - macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
-- Image layers and masks, split compare, and switching between two running backends are planned. The macOS app has numeric crop only.
+- Image layers and masks, split compare, and switching between two running backends are planned. The macOS app has numeric crop only and no vector document builder yet (its output panel does offer the raster PDF and every encoder).
+- Vector documents: pictures come from the bundled samples or your upload; there is no font upload, so text uses the system's sans, serif and monospace. The "selectable text" indicator in the Web UI is a heuristic (the PDF carries a text font with a character map); the unit tests confirm it with a real PDF reader on macOS.
+- Browsers do not display TIFF, HEIF or PDF as images, so the playground shows a labelled PNG decoded from the real bytes; Export always downloads the real file.
 - The playground previews at 1280 px; there is no downsampled-input fast path yet, because it is not equivalent for blur, trim, text and geometry steps.
 - Multi-architecture images are not claimed: build and test on the architecture you run.
 - Fonts: the Docker image bundles DejaVu (free licence) for text; native runs use your system fonts.

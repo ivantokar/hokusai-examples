@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-29 implemented, 9 partial, 21 planned, 59 in total.
+36 implemented, 5 partial, 18 planned, 59 in total.
 
 
 ## Sources
@@ -81,14 +81,14 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| JPEG | `jpeg(quality:progressive:)` | partial | Playground output panel; advanced typed options planned. |
-| PNG | `png(compressionLevel:interlaced:)` | partial | Playground output panel; advanced typed options planned. |
-| WebP | `webp(quality:effort:lossless:)` | partial | Playground output panel; advanced typed options planned. |
-| AVIF | `avif(quality:effort:lossless:)` | partial | Playground output panel; advanced typed options planned. |
-| TIFF | `tiff(compression:)` | partial | Playground output panel; advanced typed options planned. |
-| GIF | `gif()` | implemented | Playground output panel. |
-| HEIF | `heif(...)` | planned | Export / PDF view (needs a libvips with HEIF encoding; reported by /api/capabilities). |
-| Raster PDF | `pdf(pageSize:margins:background:)` | planned | Export / PDF view. |
+| JPEG | `jpeg(quality:progressive:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| PNG | `png(compressionLevel:interlaced:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| WebP | `webp(quality:effort:lossless:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| AVIF | `avif(quality:effort:lossless:)` | implemented | Playground output panel with common and advanced typed options; Export / PDF view compares all encoders on real bytes. |
+| TIFF | `tiff(compression:)` | partial | Playground output panel (compression); Export / PDF view comparison. |
+| GIF | `gif()` | implemented | Playground output panel; Export / PDF view comparison. |
+| HEIF | `heif(options:)` | implemented | Playground output panel (HEVC or AV1, quality, effort, lossless); listed as unavailable with the reason when this libvips has no encoder; a labelled PNG proxy is shown because browsers do not display it. |
+| Raster PDF | `pdf(pageSize:margins:background:)` | implemented | Playground output panel and the Raster PDF report card: page size, orientation, margins, position, background, effective-resolution cap, document properties; preview is page 1 decoded from the real PDF. |
 
 ## Metadata
 
@@ -108,7 +108,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| HokusaiPDF documents | `PDFDocument` | planned | Export / PDF view. |
+| HokusaiPDF documents | `VectorDocument, VectorPage` | implemented | Export / PDF view: multi-page document builder with text and Pango markup, rectangles, lines, gradients, images, page sizes and document properties; selectable text verified with a PDF reader in the tests. Not an editor for existing PDFs; no tables or other layout beyond what HokusaiPDF draws. |
 
 ## Terminals and runtime
 

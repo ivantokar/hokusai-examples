@@ -110,6 +110,37 @@ print(f"{codes.count(200)} accepted, {codes.count(503)} shed, then idle")
 PY
 ok "burst is shed with 503 and the server returns to idle"
 
+# PDF: a raster page, a vector document with real text, and honest previews of both.
+python3 - "$base" "$id" <<'PY' || fail "pdf"
+import json, sys, urllib.error, urllib.request
+base, upload = sys.argv[1], sys.argv[2]
+def post(path, body):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=json.dumps(body).encode()))
+catalog = json.load(urllib.request.urlopen(base + "/api/catalog"))
+assert any(o["format"] == "pdf" and o["available"] for o in catalog["outputs"]), "pdf output missing"
+raster = {"version": 1, "steps": [{"op": "text", "params": {"content": "Pixels only"}}], "output": {"format": "pdf", "options": {"pageSize": "letter", "orientation": "landscape", "title": "T"}}}
+real = post("/api/render", {"uploadId": upload, "recipe": raster})
+data = real.read()
+assert data[:4] == b"%PDF" and float(real.headers["x-hokusai-pdf-width"]) == 792, real.headers["x-hokusai-pdf-width"]
+assert b"/ToUnicode" not in data, "a raster page must not carry selectable text"
+proxy = post("/api/render", {"uploadId": upload, "recipe": raster, "viewable": True})
+png = proxy.read()
+assert png[1:4] == b"PNG" and proxy.headers["x-hokusai-proxy-of"] == "application/pdf" and int(proxy.headers["x-hokusai-bytes"]) == len(data)
+doc = catalog["vectorPresets"][0]["document"]
+vec = post("/api/pdf", {"document": doc})
+pdf = vec.read()
+assert pdf[:4] == b"%PDF" and vec.headers["x-hokusai-pdf-pages"] == "2" and vec.headers["x-hokusai-selectable-text"] == "true" and b"/ToUnicode" in pdf
+page = post("/api/pdf", {"document": doc, "previewPage": 2}).read()
+assert page[1:4] == b"PNG"
+cmp = json.load(post("/api/compare", {"uploadId": upload, "recipe": {"version": 1, "steps": [], "output": {"format": "png"}}}))
+ok = {r["format"] for r in cmp["rows"] if r["ok"]}
+assert {"jpeg", "png", "webp", "tiff"} <= ok, ok
+bad = {"document": {"version": 1, "pages": [{"items": [{"type": "image", "props": {"asset": "upload"}}]}]}}
+try: post("/api/pdf", bad); raise SystemExit("an image item with no upload should be rejected")
+except urllib.error.HTTPError as e: assert e.code == 422, e.code
+PY
+ok "raster PDF (no selectable text), vector PDF (selectable text), page previews, encoder comparison"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

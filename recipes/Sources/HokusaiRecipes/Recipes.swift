@@ -16,7 +16,7 @@ public enum Catalog {
     }
 
     public static var outputs: [OutputSpec] {
-        allOutputs.map { OutputSpec(format: $0.format, title: $0.title, mime: $0.mime, fileExtension: $0.fileExtension, params: $0.params + metadataParams) }
+        allOutputs.map { OutputSpec(format: $0.format, title: $0.title, mime: $0.mime, fileExtension: $0.fileExtension, params: $0.format == "pdf" ? $0.params : $0.params + metadataParams) }
     }
 }
 

@@ -214,3 +214,80 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
         await #expect(throws: RenderError.self) { try await service.render(RenderRequest(uploadId: id, recipe: recipe, stopBefore: "nope")) }
     }
 }
+
+#if canImport(PDFKit)
+import PDFKit
+#endif
+
+@Suite struct VectorDocumentTests {
+    private func assets(upload: Data? = nil) -> VectorCompiler.Assets {
+        { name in
+            if name == "upload" { guard let upload else { throw VectorError.noUpload }; return try Hokusai(data: upload) }
+            return try Hokusai(data: try fixture(name))
+        }
+    }
+
+    @Test func reportRendersATwoPagePDFWithRealText() async throws {
+        let document = try VectorCompiler.compile(VectorPresets.report, assets: assets())
+        let output = try await document.data()
+        #expect(output.data.starts(with: Array("%PDF".utf8)))
+        #expect(output.info.pageCount == 2)
+        // Cairo writes a character map for every text font; a PDF of only pixels has none.
+        #expect(output.data.range(of: Data("/ToUnicode".utf8)) != nil)
+        #if canImport(PDFKit)
+        // The strongest check: a PDF reader can extract the words, so they are selectable text and not pixels.
+        let reader = try #require(PDFDocument(data: output.data))
+        #expect(reader.pageCount == 2)
+        let text = reader.string ?? ""
+        #expect(text.range(of: "Lighthouse report") != nil, "Lighthouse report is not selectable text")
+        #expect(text.range(of: "Findings") != nil, "Findings is not selectable text")
+        #expect(text.range(of: "ten seconds") != nil, "ten seconds is not selectable text")
+        #endif
+    }
+
+    @Test func aRasterPDFHasNoSelectableText() async throws {
+        let recipe = Recipe(steps: [Step(op: "text", params: ["content": .string("Pixels only")])], output: .init(format: "pdf"))
+        let compiled = try RecipeCompiler.compile(recipe, source: try Hokusai(data: try fixture("scene.png")))
+        let output = try await compiled.pipeline.data()
+        #expect(output.info.pdf?.pageCount == 1)
+        #expect(output.data.range(of: Data("/ToUnicode".utf8)) == nil)
+        #if canImport(PDFKit)
+        #expect((PDFDocument(data: output.data)?.string ?? "").range(of: "Pixels only") == nil)
+        #endif
+    }
+
+    @Test func invalidDocumentsAreReportedNotMoved() throws {
+        #expect(throws: VectorError.noPages) { try VectorCompiler.validate(VectorDocumentSpec(pages: [])) }
+        #expect(throws: VectorError.unknownItem("table")) { try VectorCompiler.validate(VectorDocumentSpec(pages: [VectorPageSpec(items: [VectorItem(type: "table")])])) }
+        #expect(throws: (any Error).self) {   // a rectangle with neither fill nor outline
+            _ = try VectorCompiler.compile(VectorDocumentSpec(pages: [VectorPageSpec(items: [VectorItem(type: "rect", props: ["fill": .string("#00000000")])])]), assets: assets())
+        }
+        #expect(throws: VectorError.noUpload) {
+            _ = try VectorCompiler.compile(VectorDocumentSpec(pages: [VectorPageSpec(items: [VectorItem(type: "image", props: ["asset": .string("upload")])])]), assets: assets())
+        }
+    }
+
+    @Test func generatedSwiftMentionsEveryItemAndEscapesText() throws {
+        var doc = VectorPresets.report
+        doc.pages[0].items.append(VectorItem(type: "text", props: ["content": .string("He said \"hi\" \\(x)")]))
+        let code = try VectorCodeGenerator.swift(doc)
+        #expect(code.contains("VectorPage(size: .a4())"))
+        #expect(code.contains(".linearGradient(from: .sRGB8(red: 27, green: 58, blue: 87), to:"))
+        #expect(code.contains(".markup(") && code.contains(".image(try Hokusai(url:"))
+        #expect(code.contains(#"He said \"hi\" \\(x)"#))
+        #expect(code.contains("VectorDocument(pages: [page1, page2], metadata: PDFDocumentMetadata(title: \"Lighthouse report\", author: \"Hokusai examples\"))"))
+    }
+
+    @Test func documentsSurviveJSON() throws {
+        let back = try JSONDecoder().decode(VectorDocumentSpec.self, from: try JSONEncoder().encode(VectorPresets.report))
+        #expect(back == VectorPresets.report)
+    }
+
+    @Test func rasterPDFOptionsAreHonoured() async throws {
+        let recipe = Recipe(output: .init(format: "pdf", options: ["pageSize": .string("letter"), "orientation": .string("landscape"), "margins": .number(18), "title": .string("T")]))
+        let output = try await RecipeCompiler.compile(recipe, source: try Hokusai(data: try fixture("scene.png"))).pipeline.data()
+        #expect(output.info.pdf?.pageWidth == 792 && output.info.pdf?.pageHeight == 612)
+        let code = try SwiftCodeGenerator.chain(recipe).last!
+        #expect(code.contains(".letter(.landscape)") && code.contains("margins: .all(18)") && code.contains("PDFDocumentMetadata(title: \"T\")"))
+    }
+}

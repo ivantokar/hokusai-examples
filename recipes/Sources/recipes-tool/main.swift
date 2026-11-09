@@ -25,6 +25,15 @@ case "snippets":
         let ext = Catalog.outputs.first { $0.format == preset.recipe.output.format }!.fileExtension
         manifest.append(["target": name, "sample": preset.sample, "output": "result.\(ext)"])
     }
+    // The vector document template: HokusaiPDF code, with the pictures it places next to the program.
+    for template in VectorPresets.all {
+        let name = "Vector_" + template.id.replacingOccurrences(of: "-", with: "_")
+        let folder = root.appending(path: "Sources/\(name)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try VectorCodeGenerator.swift(template.doc).write(to: folder.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        targets.append(name)
+        manifest.append(["target": name, "sample": "scene.png", "output": "document.pdf"])
+    }
     let package = """
     // swift-tools-version: 6.0
     import PackageDescription
@@ -34,7 +43,7 @@ case "snippets":
         platforms: [.macOS(.v13)],
         dependencies: [.package(url: "https://github.com/ivantokar/hokusai.git", from: "2.2.2")],
         targets: [
-    \(targets.map { "        .executableTarget(name: \"\($0)\", dependencies: [.product(name: \"Hokusai\", package: \"hokusai\")])," }.joined(separator: "\n"))
+    \(targets.map { "        .executableTarget(name: \"\($0)\", dependencies: [.product(name: \"Hokusai\", package: \"hokusai\"), .product(name: \"HokusaiPDF\", package: \"hokusai\")])," }.joined(separator: "\n"))
         ]
     )
     """

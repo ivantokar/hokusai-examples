@@ -17,7 +17,7 @@ let package = Package(
         .package(url: "https://github.com/ivantokar/hokusai.git", from: "2.2.2"),
     ],
     targets: [
-        .target(name: "HokusaiRecipes", dependencies: [.product(name: "Hokusai", package: "hokusai")]),
+        .target(name: "HokusaiRecipes", dependencies: [.product(name: "Hokusai", package: "hokusai"), .product(name: "HokusaiPDF", package: "hokusai")]),
         .target(name: "HokusaiDemoServices", dependencies: ["HokusaiRecipes", .product(name: "Hokusai", package: "hokusai")]),
         .executableTarget(name: "recipes-tool", dependencies: ["HokusaiRecipes"]),
         .testTarget(name: "HokusaiRecipesTests", dependencies: ["HokusaiRecipes", "HokusaiDemoServices"]),
