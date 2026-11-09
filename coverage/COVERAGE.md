@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-25 implemented, 11 partial, 23 planned, 59 in total.
+29 implemented, 9 partial, 21 planned, 59 in total.
 
 
 ## Sources
@@ -14,7 +14,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | --- | --- | --- | --- |
 | Encoded data | `Hokusai(data:)` | implemented | Web: upload, samples. |
 | File URLs | `Hokusai(url:)` | partial | Generated Swift shows it with an input.jpg placeholder; macOS app will open files. The Web demo never reads server paths. |
-| Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab planned. |
+| Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response. |
 | Generated text as a source | `Hokusai.text(_:layout:style:)` | planned | Composition view. |
 | Raw pixels | `Hokusai(raw:)` | planned | Inspect lab. |
 
@@ -27,7 +27,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Rotate | `rotate(by:)` | implemented | Playground. |
 | Flip (vertical) | `flip(), flop()` | implemented | Playground. |
 | Flop (horizontal) | `flop()` | implemented | Playground. |
-| Crop (extract) | `extract(x:y:width:height:)` | partial | Playground: numeric rectangle; on-canvas crop planned. |
+| Crop (extract) | `extract(x:y:width:height:)` | implemented | Playground: on-canvas rectangle with handles, keyboard and numeric entry, fixed aspect ratios; edited on the image entering the step. |
 | Smart crop | `smartCrop(width:height:strategy:)` | implemented | Playground. |
 | Extend (canvas) | `extend(...)` | planned | Playground. |
 | Affine | `affine(...)` | planned | Playground. |
@@ -94,8 +94,8 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Source inspection | `metadata()` | partial | Upload response shows dimensions, oriented size and format; full Inspect lab planned. |
-| Output metadata retention | `metadata(_:)` | planned | Export / PDF view, verified on the exported bytes. |
+| Source inspection | `metadata()` | implemented | Inspect view: dimensions, orientation, pixel model, density, pages, animation and embedded-block sizes. |
+| Output metadata retention | `metadataPolicy(_:)` | implemented | Output panel (granular keep EXIF/ICC/XMP/IPTC/other/orientation/density) and Inspect view, verified on the exported bytes. |
 
 ## Raw and pages
 
@@ -116,8 +116,8 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | --- | --- | --- | --- |
 | data() | `data()` | implemented | Every render. |
 | write(to:) | `write(to:)` | partial | Shown in the generated Swift; the demo returns bytes instead of writing server files. |
-| Chunk streaming | `writeChunks(...), response()` | implemented | Minimal route in both servers streams with response(). |
+| Chunk streaming | `writeChunks(...), response()` | implemented | Minimal route in both servers streams with response(); Runtime Lab measures first byte and chunks per format. |
 | Runtime capabilities | `Hokusai.capabilities()` | implemented | GET /api/capabilities. |
-| Startup configuration | `Hokusai.configure(_:)` | implemented | Both servers configure at startup; read-only display planned. |
+| Startup configuration | `Hokusai.configure(_:)` | implemented | Both servers configure at startup (HOKUSAI_MAX_CONCURRENT, HOKUSAI_MAX_QUEUED); Runtime Lab shows it read-only. |
 | Scheduler status | `Hokusai.runtimeStatus` | implemented | GET /api/status. |
-| Cancellation, limits, queue behaviour | `InputOptions.limits, RuntimeConfiguration` | planned | Runtime Lab. |
+| Cancellation, limits, queue behaviour | `InputOptions.limits, RuntimeConfiguration` | implemented | Runtime Lab: cancel and observe the server's own status, a bounded burst against the queue, failure examples. |

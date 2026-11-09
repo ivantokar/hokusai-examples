@@ -51,11 +51,16 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     router.group("api/minimal").add(middleware: HokusaiErrorMiddleware()).post("resize") { request, _ -> Response in
         let width = min(max(request.uri.queryParameters["width"].flatMap { Int($0) } ?? 800, 16), 4096)
         let image = try await request.hokusaiImage(maximumSize: 5 * 1024 * 1024)       // 413 above 5 MiB
-        return try await image
+        let resized = try image
             .autoOrient()
             .resize(width: width, fit: .inside)
-            .webp(quality: 82)
-            .response()                                                                // Content-Type: image/webp, streamed
+        // ?format= is only here for the Runtime Lab: TIFF is encoded in memory before the first byte leaves.
+        switch request.uri.queryParameters["format"].map(String.init) {
+        case "jpeg": return try await resized.jpeg(quality: 85).response()
+        case "png": return try await resized.png().response()
+        case "tiff": return try await resized.tiff().response()
+        default: return try await resized.webp(quality: 82).response()                // Content-Type: image/webp, streamed
+        }
     }
 
     // MARK: The demo API (shared behaviour lives in HokusaiDemoServices)
@@ -77,6 +82,13 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     apiRoutes.post("code") { request, _ -> Response in
         do { return jsonResponse(try api.code(try await collect(request, limit: 1 << 20))) } catch { return failure(error) }
     }
+    apiRoutes.post("inspect") { request, _ -> Response in
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        do {
+            let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
+            return jsonResponse(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+        } catch { return failure(error) }
+    }
     apiRoutes.post("render") { request, _ -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(try await collect(request, limit: 1 << 20)))
@@ -92,7 +104,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     // The sample images are plain files shared by both backends.
     router.get("samples/:name") { _, context -> Response in
         let name = try context.parameters.require("name")
-        guard ["scene.png", "phone.jpg", "emblem.png", "mask.png"].contains(name),
+        guard DemoAPI.sampleNames.contains(name),
               let data = FileManager.default.contents(atPath: "\(fixturesRoot)/\(name)") else { throw HTTPError(.notFound) }
         let type = name.hasSuffix(".jpg") ? "image/jpeg" : "image/png"
         return Response(status: .ok, headers: [.contentType: type, .cacheControl: "public, max-age=3600"], body: .init(byteBuffer: ByteBuffer(data: data)))
@@ -104,7 +116,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
 }
 
 // Hokusai's process-level settings are frozen at first use, so set them before the first request.
-try Hokusai.configure(.init(maxConcurrentEvaluations: .fixed(4), maxQueuedEvaluations: 64))
+try Hokusai.configure(DemoAPI.runtimeConfiguration())
 try Hokusai.initialize()
 
 let app = Application(router: buildRouter(api: DemoAPI(backend: backend)), configuration: .init(address: .hostname(host, port: port)))

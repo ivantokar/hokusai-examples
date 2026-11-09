@@ -7,6 +7,7 @@ enum Samples {
         Sample(file: "scene.png", title: "Scene (landscape)"),
         Sample(file: "phone.jpg", title: "Phone photo (EXIF rotated)"),
         Sample(file: "emblem.png", title: "Emblem (transparent)"),
+        Sample(file: "metadata.jpg", title: "Metadata fixture (EXIF, ICC, XMP, IPTC)"),
     ]
     static func data(_ file: String) -> Data? {
         Bundle.module.url(forResource: file, withExtension: nil, subdirectory: "fixtures").flatMap { try? Data(contentsOf: $0) }

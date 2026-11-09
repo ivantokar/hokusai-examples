@@ -19,7 +19,7 @@
   "item": "Streamed / spooled input",
   "api": "Hokusai(spooling:)",
   "status": "partial",
-  "where": "Minimal route in both servers uses it; Runtime Lab planned"
+  "where": "Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response"
  },
  {
   "area": "Sources",
@@ -79,8 +79,8 @@
   "area": "Geometry",
   "item": "Crop (extract)",
   "api": "extract(x:y:width:height:)",
-  "status": "partial",
-  "where": "Playground: numeric rectangle; on-canvas crop planned",
+  "status": "implemented",
+  "where": "Playground: on-canvas rectangle with handles, keyboard and numeric entry, fixed aspect ratios; edited on the image entering the step",
   "op": "crop"
  },
  {
@@ -359,15 +359,15 @@
   "area": "Metadata",
   "item": "Source inspection",
   "api": "metadata()",
-  "status": "partial",
-  "where": "Upload response shows dimensions, oriented size and format; full Inspect lab planned"
+  "status": "implemented",
+  "where": "Inspect view: dimensions, orientation, pixel model, density, pages, animation and embedded-block sizes"
  },
  {
   "area": "Metadata",
   "item": "Output metadata retention",
-  "api": "metadata(_:)",
-  "status": "planned",
-  "where": "Export / PDF view, verified on the exported bytes"
+  "api": "metadataPolicy(_:)",
+  "status": "implemented",
+  "where": "Output panel (granular keep EXIF/ICC/XMP/IPTC/other/orientation/density) and Inspect view, verified on the exported bytes"
  },
  {
   "area": "Raw and pages",
@@ -409,7 +409,7 @@
   "item": "Chunk streaming",
   "api": "writeChunks(...), response()",
   "status": "implemented",
-  "where": "Minimal route in both servers streams with response()"
+  "where": "Minimal route in both servers streams with response(); Runtime Lab measures first byte and chunks per format"
  },
  {
   "area": "Terminals and runtime",
@@ -423,7 +423,7 @@
   "item": "Startup configuration",
   "api": "Hokusai.configure(_:)",
   "status": "implemented",
-  "where": "Both servers configure at startup; read-only display planned"
+  "where": "Both servers configure at startup (HOKUSAI_MAX_CONCURRENT, HOKUSAI_MAX_QUEUED); Runtime Lab shows it read-only"
  },
  {
   "area": "Terminals and runtime",
@@ -436,7 +436,7 @@
   "area": "Terminals and runtime",
   "item": "Cancellation, limits, queue behaviour",
   "api": "InputOptions.limits, RuntimeConfiguration",
-  "status": "planned",
-  "where": "Runtime Lab"
+  "status": "implemented",
+  "where": "Runtime Lab: cancel and observe the server's own status, a bounded burst against the queue, failure examples"
  }
 ]

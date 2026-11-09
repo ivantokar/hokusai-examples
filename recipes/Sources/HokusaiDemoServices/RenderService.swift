@@ -8,6 +8,16 @@ public struct RenderRequest: Codable, Sendable {
     /// When set, the *result* is reduced to fit this many pixels on its longest side, for display.
     /// The recipe is evaluated on the full original either way, so geometry steps stay exact.
     public var previewMaxEdge: Int?
+    /// When set, only the enabled steps *before* the step with this id run. The crop editor uses it to
+    /// show the image that enters a crop, in the coordinates the crop is expressed in.
+    public var stopBefore: String?
+
+    public init(uploadId: String, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil) {
+        self.uploadId = uploadId
+        self.recipe = recipe
+        self.previewMaxEdge = previewMaxEdge
+        self.stopBefore = stopBefore
+    }
 }
 
 public struct RenderResult: Sendable {
@@ -23,6 +33,7 @@ public struct RenderResult: Sendable {
 public enum RenderError: Error {
     case unknownUpload
     case invalidPreviewSize
+    case unknownStep
 }
 
 /// Runs recipes for any HTTP framework. The servers adapt requests to this and responses from it.
@@ -36,7 +47,12 @@ public struct RenderService: Sendable {
         let started = ContinuousClock.now
         // Decoding is lazy: invalid bytes are reported when the terminal runs, as a HokusaiError.
         let source = try Hokusai(data: bytes)
-        let compiled = try RecipeCompiler.compile(request.recipe, source: source, fitting: request.previewMaxEdge)
+        var recipe = request.recipe
+        if let stop = request.stopBefore {
+            guard let index = recipe.steps.firstIndex(where: { $0.id == stop }) else { throw RenderError.unknownStep }
+            recipe.steps = Array(recipe.steps[..<index])
+        }
+        let compiled = try RecipeCompiler.compile(recipe, source: source, fitting: request.previewMaxEdge)
         let output = try await compiled.pipeline.data()
         let elapsed = ContinuousClock.now - started
         let ms = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15

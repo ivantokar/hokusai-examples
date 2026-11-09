@@ -55,6 +55,61 @@ code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$base/api/render" -d "{
 [ "$code" = "422" ] || fail "out-of-bounds crop gave $code, expected 422"
 ok "errors: expired upload 404, non-image 422, invalid crop $code"
 
+# The crop editor asks for the image that ENTERS a step: sizes must match the coordinates the crop uses.
+crop='{"version":1,"steps":[{"id":"a","op":"autoOrient"},{"id":"b","op":"resize","params":{"width":400,"fit":"inside"}},{"id":"c","op":"rotate","params":{"degrees":90}},{"id":"d","op":"crop","params":{"x":10,"y":20,"width":100,"height":120}}],"output":{"format":"webp"}}'
+eh="$(curl -fsS -D- -o /dev/null -X POST "$base/api/render" -d "{\"uploadId\":\"$id\",\"stopBefore\":\"d\",\"recipe\":$crop}" | tr -d '\r')"
+echo "$eh" | grep -qi "^x-hokusai-width: 250" && echo "$eh" | grep -qi "^x-hokusai-height: 400" || fail "image entering the crop is not 250 x 400"
+fh="$(curl -fsS -D- -o /dev/null -X POST "$base/api/render" -d "{\"uploadId\":\"$id\",\"recipe\":$crop}" | tr -d '\r')"
+echo "$fh" | grep -qi "^x-hokusai-width: 100" && echo "$fh" | grep -qi "^x-hokusai-height: 120" || fail "export does not match the crop rectangle"
+ok "crop coordinates agree with the image entering the step"
+
+# Metadata retention is read back from the exported bytes, never assumed from the settings.
+mid="$(curl -fsS --data-binary @"$here/fixtures/metadata.jpg" "$base/api/uploads" | json 'd["uploadId"]')"
+inspect() { curl -fsS -X POST "$base/api/inspect" -d "{\"uploadId\":\"$mid\",\"recipe\":{\"version\":1,\"steps\":[],\"output\":{\"format\":\"jpeg\",\"options\":$1}}}"; }
+inspect '{}' | json 'd["source"]["xmpBytes"] > 0 and d["source"]["iptcBytes"] > 0 and d["output"]["xmpBytes"] == 0 and d["output"]["iptcBytes"] == 0 and d["output"]["iccBytes"] > 0' | grep -q True || fail "default policy should keep ICC and drop XMP/IPTC"
+inspect '{"keepXmp":true,"keepIptc":true,"keepIcc":false}' | json 'd["output"]["xmpBytes"] > 0 and d["output"]["iptcBytes"] > 0 and d["output"]["iccBytes"] == 0' | grep -q True || fail "granular policy was not honoured in the exported bytes"
+ok "metadata policy verified on exported bytes"
+
+# Runtime: formats other than WebP come through the minimal route (TIFF is the buffered one).
+python3 - "$base" "$here/fixtures/scene.png" <<'PY' || fail "minimal route formats"
+import sys, urllib.request
+base, path = sys.argv[1], sys.argv[2]
+body = open(path, "rb").read()
+magic = {"webp": lambda b: b[:4] == b"RIFF", "jpeg": lambda b: b[:2] == b"\xff\xd8", "png": lambda b: b[1:4] == b"PNG", "tiff": lambda b: b[:4] in (b"II*\x00", b"MM\x00*")}
+for fmt, check in magic.items():
+    data = urllib.request.urlopen(urllib.request.Request(f"{base}/api/minimal/resize?width=300&format={fmt}", data=body)).read()
+    assert check(data), fmt
+PY
+ok "minimal route streams webp, jpeg, png and tiff"
+
+# Runtime: a burst larger than running + queued is shed with 503 and a message; everything accepted still finishes.
+python3 - "$base" "$id" <<'PY' || fail "queue behaviour"
+import concurrent.futures, json, sys, time, urllib.error, urllib.request
+base, upload = sys.argv[1], sys.argv[2]
+status0 = json.load(urllib.request.urlopen(base + "/api/status"))
+limit = status0["maxConcurrent"] + (status0["limits"]["maxQueued"] or 0)
+heavy = {"version": 1, "steps": [{"op": "resize", "params": {"width": 5000, "fit": "inside"}}, {"op": "blur", "params": {"sigma": 6}}, {"op": "median", "params": {"size": 9}}], "output": {"format": "jpeg", "options": {"quality": 60}}}
+def one(_):
+    req = urllib.request.Request(base + "/api/render", data=json.dumps({"uploadId": upload, "recipe": heavy}).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r: r.read(); return r.status, ""
+    except urllib.error.HTTPError as e: return e.code, e.read().decode()
+n = limit + 8
+with concurrent.futures.ThreadPoolExecutor(n) as pool: results = list(pool.map(one, range(n)))
+codes = sorted(c for c, _ in results)
+assert set(codes) <= {200, 503}, codes
+assert codes.count(200) >= status0["maxConcurrent"], codes
+assert codes.count(503) >= 1, f"nothing was shed with {n} requests and room for {limit}: {codes}"
+assert any("queue" in m for c, m in results if c == 503), "503 without a queue message"
+for _ in range(100):
+    s = json.load(urllib.request.urlopen(base + "/api/status"))
+    if s["active"] == 0 and s["queued"] == 0: break
+    time.sleep(0.1)
+else: raise AssertionError("the server never went idle")
+print(f"{codes.count(200)} accepted, {codes.count(503)} shed, then idle")
+PY
+ok "burst is shed with 503 and the server returns to idle"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

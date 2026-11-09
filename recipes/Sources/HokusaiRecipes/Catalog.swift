@@ -254,6 +254,33 @@ struct OutputDef: Sendable {
     let swift: @Sendable (Params) -> String
 }
 
+/// Which embedded blocks the encoded file keeps. These follow `MetadataPolicy`, whose defaults keep the
+/// colour profile, orientation and density and drop everything else.
+let metadataParams: [ParamSpec] = [
+    flag("keepExif", "Keep EXIF", false, help: "Camera, lens and capture details."),
+    flag("keepIcc", "Keep colour profile (ICC)", true, help: "An embedded profile is different from a colour conversion."),
+    flag("keepXmp", "Keep XMP", false),
+    flag("keepIptc", "Keep IPTC", false),
+    flag("keepOther", "Keep other blocks", false, advanced: true),
+    flag("keepOrientation", "Keep orientation tag", true, advanced: true, help: "Removing it without Auto-orient first leaves the pixels sideways."),
+    flag("keepDensity", "Keep density (dpi)", true, advanced: true),
+]
+
+/// The metadata policy as Hokusai spells it, and as the code generator prints it.
+func applyMetadata(_ img: Hokusai, _ p: Params) -> Hokusai {
+    func action(_ name: String) -> MetadataPolicy.Action { p.bool(name) ? .preserve : .remove }
+    return img.metadataPolicy(MetadataPolicy(exif: action("keepExif"), icc: action("keepIcc"), xmp: action("keepXmp"), iptc: action("keepIptc"),
+                                             other: action("keepOther"), orientation: action("keepOrientation"), density: action("keepDensity")))
+}
+
+func metadataSwift(_ p: Params) -> String? {
+    let all: [(String, String)] = [("exif", "keepExif"), ("icc", "keepIcc"), ("xmp", "keepXmp"), ("iptc", "keepIptc"),
+                                   ("other", "keepOther"), ("orientation", "keepOrientation"), ("density", "keepDensity")]
+    let changed = all.filter { !p.isDefault($0.1) }
+    guard !changed.isEmpty else { return nil }
+    return ".metadataPolicy(MetadataPolicy(\(changed.map { "\($0.0): \(p.bool($0.1) ? ".preserve" : ".remove")" }.joined(separator: ", "))))"
+}
+
 let allOutputs: [OutputDef] = [
     OutputDef(format: "jpeg", title: "JPEG", mime: "image/jpeg", fileExtension: "jpg",
               params: [int("quality", "Quality", 82, min: 1, max: 100), flag("progressive", "Progressive")],

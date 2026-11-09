@@ -14,11 +14,16 @@ import Vapor
 func minimalRoutes(_ routes: RoutesBuilder) {
     routes.grouped(HokusaiErrorMiddleware()).post("api", "minimal", "resize") { req async throws -> Response in
         let width = min(max(req.query[Int.self, at: "width"] ?? 800, 16), 4096)
-        return try await req.hokusaiImage(maximumSize: 5 * 1024 * 1024)       // 413 above 5 MiB
+        let image = try await req.hokusaiImage(maximumSize: 5 * 1024 * 1024)  // 413 above 5 MiB
             .autoOrient()
             .resize(width: width, fit: .inside)
-            .webp(quality: 82)
-            .response()                                                       // Content-Type: image/webp, streamed
+        // ?format= is only here for the Runtime Lab: TIFF is encoded in memory before the first byte leaves.
+        switch req.query[String.self, at: "format"] {
+        case "jpeg": return try await image.jpeg(quality: 85).response()
+        case "png": return try await image.png().response()
+        case "tiff": return try await image.tiff().response()
+        default: return try await image.webp(quality: 82).response()          // Content-Type: image/webp, streamed
+        }
     }
 }
 
@@ -54,6 +59,13 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
     routes.post("code") { req async -> Response in
         do { return json(try api.code(body(req))) } catch { return fail(error) }
     }
+    routes.post("inspect") { req async -> Response in
+        struct Body: Decodable { let uploadId: String; let recipe: Recipe? }
+        do {
+            let body = try JSONDecoder().decode(Body.self, from: body(req))
+            return json(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe))
+        } catch { return fail(error) }
+    }
     routes.post("render") { req async -> Response in
         do {
             let result = try await api.render.render(try api.decodeRenderRequest(body(req)))
@@ -72,7 +84,7 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
 
 func configure(_ app: Application) throws {
     // Hokusai's process-level settings are frozen at first use, so set them before the first request.
-    try app.hokusai.configure(.init(maxConcurrentEvaluations: .fixed(4), maxQueuedEvaluations: 64))
+    try app.hokusai.configure(DemoAPI.runtimeConfiguration())
 
     // Vapor collects request bodies up to this size; the minimal route and the upload route check their own limits too.
     app.routes.defaultMaxBodySize = "26mb"
@@ -87,7 +99,7 @@ func configure(_ app: Application) throws {
     app.middleware.use(FileMiddleware(publicDirectory: root, defaultFile: "index.html"))
     app.get("samples", ":name") { req async throws -> Response in
         let name = try req.parameters.require("name")
-        guard ["scene.png", "phone.jpg", "emblem.png", "mask.png"].contains(name) else { throw Abort(.notFound) }
+        guard DemoAPI.sampleNames.contains(name) else { throw Abort(.notFound) }
         return try await req.fileio.asyncStreamFile(at: "\(fixtures)/\(name)")
     }
     app.http.server.configuration.hostname = Environment.get("HOST") ?? "127.0.0.1"
