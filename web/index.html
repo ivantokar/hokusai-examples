@@ -16,7 +16,7 @@
       <button class="tab" id="nav-recipes" aria-haspopup="true">Recipes</button>
       <button class="tab" id="nav-inspect">Inspect</button>
       <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Export / PDF</button>
-      <button class="tab" disabled title="Planned: see coverage/COVERAGE.md">Runtime Lab</button>
+      <button class="tab" id="nav-lab">Runtime Lab</button>
     </nav>
     <div class="spacer"></div>
     <div class="backend" id="backend" role="status" aria-live="polite"><span class="dot" data-state="connecting"></span><span id="backend-text">Connecting…</span></div>
@@ -86,6 +86,7 @@
       </div>
       <div id="inspect-body" class="inspect-grid"></div>
     </section>
+    <section class="inspect" id="lab" aria-label="Runtime Lab" hidden></section>
 
     <aside class="panel right" aria-label="Settings">
       <h2 id="settings-title">Settings</h2>

@@ -14,11 +14,16 @@ import Vapor
 func minimalRoutes(_ routes: RoutesBuilder) {
     routes.grouped(HokusaiErrorMiddleware()).post("api", "minimal", "resize") { req async throws -> Response in
         let width = min(max(req.query[Int.self, at: "width"] ?? 800, 16), 4096)
-        return try await req.hokusaiImage(maximumSize: 5 * 1024 * 1024)       // 413 above 5 MiB
+        let image = try await req.hokusaiImage(maximumSize: 5 * 1024 * 1024)  // 413 above 5 MiB
             .autoOrient()
             .resize(width: width, fit: .inside)
-            .webp(quality: 82)
-            .response()                                                       // Content-Type: image/webp, streamed
+        // ?format= is only here for the Runtime Lab: TIFF is encoded in memory before the first byte leaves.
+        switch req.query[String.self, at: "format"] {
+        case "jpeg": return try await image.jpeg(quality: 85).response()
+        case "png": return try await image.png().response()
+        case "tiff": return try await image.tiff().response()
+        default: return try await image.webp(quality: 82).response()          // Content-Type: image/webp, streamed
+        }
     }
 }
 
@@ -79,7 +84,7 @@ func demoRoutes(_ app: Application, api: DemoAPI) {
 
 func configure(_ app: Application) throws {
     // Hokusai's process-level settings are frozen at first use, so set them before the first request.
-    try app.hokusai.configure(.init(maxConcurrentEvaluations: .fixed(4), maxQueuedEvaluations: 64))
+    try app.hokusai.configure(DemoAPI.runtimeConfiguration())
 
     // Vapor collects request bodies up to this size; the minimal route and the upload route check their own limits too.
     app.routes.defaultMaxBodySize = "26mb"

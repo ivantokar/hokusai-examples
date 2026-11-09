@@ -33,6 +33,15 @@ public struct DemoAPI: Sendable {
 
     // MARK: Reads
 
+    /// The process-level settings both backends freeze at startup. The defaults are deliberately small so the
+    /// Runtime Lab can show a queue filling and rejecting; set `HOKUSAI_MAX_CONCURRENT` and
+    /// `HOKUSAI_MAX_QUEUED` to change them (they are read once: the runtime cannot be reconfigured later).
+    public static func runtimeConfiguration(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeConfiguration {
+        let concurrent = environment["HOKUSAI_MAX_CONCURRENT"].flatMap(Int.init).map { max(1, $0) } ?? 2
+        let queued = environment["HOKUSAI_MAX_QUEUED"].flatMap(Int.init).map { max(0, $0) } ?? 2
+        return RuntimeConfiguration(maxConcurrentEvaluations: .fixed(concurrent), maxQueuedEvaluations: queued)
+    }
+
     public func backendJSON() throws -> Data {
         struct Body: Encodable { let backend: String; let hokusai: String; let recipeVersion: Int }
         return try Self.encode(Body(backend: backend, hokusai: hokusaiVersion, recipeVersion: Recipe.currentVersion))
@@ -63,9 +72,16 @@ public struct DemoAPI: Sendable {
         let status = Hokusai.runtimeStatus
         let count = await uploads.count
         let bytes = await uploads.totalBytes
-        struct Body: Encodable { let active: Int; let queued: Int; let maxConcurrent: Int; let frozen: Bool; let uploads: Int; let uploadBytes: Int }
+        let config = status.configuration
+        struct Limits: Encodable { let maxQueued: Int?; let vipsConcurrency: String; let maxOutputPixels: Int?; let blockUntrusted: Bool; let uploadLimitBytes: Int; let uploadTotalBytes: Int; let uploadMaxEntries: Int; let uploadLifetimeSeconds: Int }
+        struct Body: Encodable { let active: Int; let queued: Int; let maxConcurrent: Int; let frozen: Bool; let uploads: Int; let uploadBytes: Int; let limits: Limits }
+        let u = uploads.limits
         return try Self.encode(Body(active: status.activeEvaluations, queued: status.queuedEvaluations, maxConcurrent: status.maxConcurrentEvaluations,
-                                    frozen: status.isConfigurationFrozen, uploads: count, uploadBytes: bytes))
+                                    frozen: status.isConfigurationFrozen, uploads: count, uploadBytes: bytes,
+                                    limits: Limits(maxQueued: config.maxQueuedEvaluations, vipsConcurrency: String(describing: config.vipsConcurrency),
+                                                   maxOutputPixels: config.maxOutputPixels, blockUntrusted: config.blockUntrustedOperations,
+                                                   uploadLimitBytes: u.maxUploadBytes, uploadTotalBytes: u.maxTotalBytes, uploadMaxEntries: u.maxEntries,
+                                                   uploadLifetimeSeconds: Int(u.timeToLive.components.seconds))))
     }
 
     // MARK: Writes

@@ -1,5 +1,7 @@
 // One UI for every backend. The server owns image processing; this file only edits a recipe,
 // asks the server to render it, and shows the result. No framework, no build step.
+import { initLab } from "./lab.js";
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...children) => {
   const node = Object.assign(document.createElement(tag), props);
@@ -365,7 +367,7 @@ function wire() {
   $("export").onclick = doExport;
   $("accurate").onclick = () => { state.full = !state.full; $("accurate").textContent = state.full ? "Fit preview" : "Full size"; changed(false); };
   $("show-result").onclick = () => setView("result"); $("show-original").onclick = () => setView("original"); $("show-crop").onclick = () => setView("crop");
-  $("nav-play").onclick = () => setSection("playground"); $("nav-inspect").onclick = () => setSection("inspect");
+  $("nav-play").onclick = () => setSection("playground"); $("nav-inspect").onclick = () => setSection("inspect"); $("nav-lab").onclick = () => setSection("lab");
   $("image").addEventListener("load", drawCrop); window.addEventListener("resize", drawCrop);
   wireCrop();
   const zoom = (z) => { state.zoom100 = z; $("canvas").classList.toggle("actual", z); $("zoom-fit").classList.toggle("on", !z); $("zoom-100").classList.toggle("on", z); $("zoom-fit").setAttribute("aria-pressed", !z); $("zoom-100").setAttribute("aria-pressed", z); showImage(); };
@@ -394,10 +396,12 @@ function wire() {
 connect().then(() => { wire(); drawOutput(); drawSteps(); drawSettings(); loadCode(); drawCode(); }).catch(() => {});
 
 // ---------- sections ----------
+let lab = null;
 function setSection(name) {
   state.section = name;
-  $("stage").hidden = name !== "playground"; $("inspect").hidden = name !== "inspect";
-  for (const [id, n] of [["nav-play", "playground"], ["nav-inspect", "inspect"]]) { $(id).classList.toggle("active", name === n); if (name === n) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current"); }
+  $("stage").hidden = name !== "playground"; $("inspect").hidden = name !== "inspect"; $("lab").hidden = name !== "lab";
+  if (name === "lab") { lab ??= initLab($("lab")); lab.show(); } else lab?.hide();
+  for (const [id, n] of [["nav-play", "playground"], ["nav-inspect", "inspect"], ["nav-lab", "lab"]]) { $(id).classList.toggle("active", name === n); if (name === n) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current"); }
   if (name === "inspect") { loadInspect(); }
 }
 

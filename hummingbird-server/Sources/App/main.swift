@@ -51,11 +51,16 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
     router.group("api/minimal").add(middleware: HokusaiErrorMiddleware()).post("resize") { request, _ -> Response in
         let width = min(max(request.uri.queryParameters["width"].flatMap { Int($0) } ?? 800, 16), 4096)
         let image = try await request.hokusaiImage(maximumSize: 5 * 1024 * 1024)       // 413 above 5 MiB
-        return try await image
+        let resized = try image
             .autoOrient()
             .resize(width: width, fit: .inside)
-            .webp(quality: 82)
-            .response()                                                                // Content-Type: image/webp, streamed
+        // ?format= is only here for the Runtime Lab: TIFF is encoded in memory before the first byte leaves.
+        switch request.uri.queryParameters["format"].map(String.init) {
+        case "jpeg": return try await resized.jpeg(quality: 85).response()
+        case "png": return try await resized.png().response()
+        case "tiff": return try await resized.tiff().response()
+        default: return try await resized.webp(quality: 82).response()                // Content-Type: image/webp, streamed
+        }
     }
 
     // MARK: The demo API (shared behaviour lives in HokusaiDemoServices)
@@ -111,7 +116,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
 }
 
 // Hokusai's process-level settings are frozen at first use, so set them before the first request.
-try Hokusai.configure(.init(maxConcurrentEvaluations: .fixed(4), maxQueuedEvaluations: 64))
+try Hokusai.configure(DemoAPI.runtimeConfiguration())
 try Hokusai.initialize()
 
 let app = Application(router: buildRouter(api: DemoAPI(backend: backend)), configuration: .init(address: .hostname(host, port: port)))

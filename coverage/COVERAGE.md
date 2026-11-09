@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-28 implemented, 9 partial, 22 planned, 59 in total.
+29 implemented, 9 partial, 21 planned, 59 in total.
 
 
 ## Sources
@@ -14,7 +14,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | --- | --- | --- | --- |
 | Encoded data | `Hokusai(data:)` | implemented | Web: upload, samples. |
 | File URLs | `Hokusai(url:)` | partial | Generated Swift shows it with an input.jpg placeholder; macOS app will open files. The Web demo never reads server paths. |
-| Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab planned. |
+| Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response. |
 | Generated text as a source | `Hokusai.text(_:layout:style:)` | planned | Composition view. |
 | Raw pixels | `Hokusai(raw:)` | planned | Inspect lab. |
 
@@ -116,8 +116,8 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | --- | --- | --- | --- |
 | data() | `data()` | implemented | Every render. |
 | write(to:) | `write(to:)` | partial | Shown in the generated Swift; the demo returns bytes instead of writing server files. |
-| Chunk streaming | `writeChunks(...), response()` | implemented | Minimal route in both servers streams with response(). |
+| Chunk streaming | `writeChunks(...), response()` | implemented | Minimal route in both servers streams with response(); Runtime Lab measures first byte and chunks per format. |
 | Runtime capabilities | `Hokusai.capabilities()` | implemented | GET /api/capabilities. |
-| Startup configuration | `Hokusai.configure(_:)` | implemented | Both servers configure at startup; read-only display planned. |
+| Startup configuration | `Hokusai.configure(_:)` | implemented | Both servers configure at startup (HOKUSAI_MAX_CONCURRENT, HOKUSAI_MAX_QUEUED); Runtime Lab shows it read-only. |
 | Scheduler status | `Hokusai.runtimeStatus` | implemented | GET /api/status. |
-| Cancellation, limits, queue behaviour | `InputOptions.limits, RuntimeConfiguration` | planned | Runtime Lab. |
+| Cancellation, limits, queue behaviour | `InputOptions.limits, RuntimeConfiguration` | implemented | Runtime Lab: cancel and observe the server's own status, a bounded burst against the queue, failure examples. |

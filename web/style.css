@@ -136,3 +136,16 @@ details.adv summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; 
 .pill { display: inline-block; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; margin-left: 6px; }
 .pill.removed { border-color: var(--bad); color: var(--bad); } .pill.kept { border-color: var(--ok); color: var(--ok); } .pill.added { border-color: var(--warn); color: var(--warn); }
 .inspect .note { grid-column: 1 / -1; }
+
+/* runtime lab */
+.lab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; margin-top: 12px; align-items: start; }
+.lab-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.lab-card h2 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink); margin: 0 0 4px; }
+.lab-card > p { margin: 0 0 10px; }
+.lab-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.lab-actions.wrap { flex-wrap: wrap; }
+.lab-out { margin-top: 8px; }
+.lab-out table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.lab-out th, .lab-out td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; vertical-align: top; }
+.lab-out th { font-weight: 500; color: var(--muted); }
+.lab-out thead th { color: var(--ink); font-size: 12px; }

@@ -19,7 +19,7 @@
   "item": "Streamed / spooled input",
   "api": "Hokusai(spooling:)",
   "status": "partial",
-  "where": "Minimal route in both servers uses it; Runtime Lab planned"
+  "where": "Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response"
  },
  {
   "area": "Sources",
@@ -409,7 +409,7 @@
   "item": "Chunk streaming",
   "api": "writeChunks(...), response()",
   "status": "implemented",
-  "where": "Minimal route in both servers streams with response()"
+  "where": "Minimal route in both servers streams with response(); Runtime Lab measures first byte and chunks per format"
  },
  {
   "area": "Terminals and runtime",
@@ -423,7 +423,7 @@
   "item": "Startup configuration",
   "api": "Hokusai.configure(_:)",
   "status": "implemented",
-  "where": "Both servers configure at startup; read-only display planned"
+  "where": "Both servers configure at startup (HOKUSAI_MAX_CONCURRENT, HOKUSAI_MAX_QUEUED); Runtime Lab shows it read-only"
  },
  {
   "area": "Terminals and runtime",
@@ -436,7 +436,7 @@
   "area": "Terminals and runtime",
   "item": "Cancellation, limits, queue behaviour",
   "api": "InputOptions.limits, RuntimeConfiguration",
-  "status": "planned",
-  "where": "Runtime Lab"
+  "status": "implemented",
+  "where": "Runtime Lab: cancel and observe the server's own status, a bounded burst against the queue, failure examples"
  }
 ]
