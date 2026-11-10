@@ -184,3 +184,6 @@ details.adv summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; 
 .page-thumbs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .raw-thumb { max-width: 140px; max-height: 110px; border: 1px solid var(--line); background: #fff; }
 .lab-out table th { width: 40%; }
+
+.empty-state .or { margin: 12px 0 8px; color: var(--muted); }
+.step.source .num { color: var(--accent); }

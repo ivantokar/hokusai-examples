@@ -32,7 +32,7 @@ public enum RecipeSizing {
     }
     private static var maskSpecs: [ParamSpec] { Catalog.operations.first { $0.id == "mask" }!.params }
 
-    public static func resolve(_ recipe: Recipe, source: Hokusai, assets: RecipeCompiler.Assets?) async throws -> [String: PixelSize] {
+    public static func resolve(_ recipe: Recipe, source: Hokusai?, assets: RecipeCompiler.Assets?) async throws -> [String: PixelSize] {
         var sizes: [String: PixelSize] = [:]
         for (index, step) in recipe.steps.enumerated() where step.enabled && step.op == "mask" {
             let params = try Params(operation: "mask", specs: maskSpecs, values: step.params)

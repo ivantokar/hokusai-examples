@@ -54,10 +54,10 @@ export function initRaw(container, ctx) {
 
   const run = el("button", { type: "button", className: "btn", textContent: "Read pixels" });
   run.onclick = async () => {
-    if (!state.upload) { outFacts.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first. Raw pixels are read from the current pipeline." })); return; }
+    if (!ctx.hasInput()) { outFacts.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first. Raw pixels are read from the current pipeline." })); return; }
     run.disabled = true;
     try {
-      const res = await fetch("/api/raw/output", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), format: fmt.value, premultiplied: pre.checked, maxEdge: Number(edge.value), page: state.page || null, assets: state.assets }) });
+      const res = await fetch("/api/raw/output", { method: "POST", body: JSON.stringify({ uploadId: ctx.uploadId(), recipe: ctx.recipe(), format: fmt.value, premultiplied: pre.checked, maxEdge: Number(edge.value), page: state.page || null, assets: state.assets }) });
       if (!res.ok) throw await apiError(res);
       bytes = new Uint8Array(await res.arrayBuffer());
       const h = (n) => res.headers.get(n);
@@ -133,10 +133,11 @@ export function initPages(container, ctx) {
   let rev = 0;
 
   async function show() {
-    if (!state.upload) { body.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
+    if (!ctx.hasInput()) { body.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
+    if (state.recipe.source) { body.replaceChildren(el("p", { className: "muted", textContent: "A generated image is one page: there is no file with pages or frames. Open an image or a PDF to see them." })); return; }
     const mine = ++rev;
     try {
-      const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, page: state.page || null, assets: state.assets }) });
+      const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: ctx.uploadId(), page: state.page || null, assets: state.assets }) });
       if (!res.ok) throw await apiError(res);
       const { source: f } = await res.json(); if (mine !== rev) return;
       const count = f.pages;
@@ -157,7 +158,7 @@ export function initPages(container, ctx) {
       body.replaceChildren(count > 1 ? selector : "", facts, el("p", { className: "muted", textContent: count > 1 ? "Selecting a page applies to the whole playground: its preview, inspection and export now use this page of the input. Page count and animation are different things: a PDF has pages, a GIF has frames with delays, and this API treats both as an index." : "This input has one image, so there is nothing to select." }), thumbs);
       // Small thumbnails, one at a time so the server's queue is never flooded.
       for (let i = 0; i < count && i < 12; i++) {
-        const r = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, page: i, recipe: { version: 1, steps: [{ op: "resize", params: { width: 140, fit: "inside" } }], output: { format: "png" } } }) });
+        const r = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: ctx.uploadId(), page: i, recipe: { version: 1, steps: [{ op: "resize", params: { width: 140, fit: "inside" } }], output: { format: "png" } } }) });
         if (mine !== rev) return;
         if (r.ok) thumbs.append(el("figure", {}, el("img", { src: URL.createObjectURL(await r.blob()), alt: `${f.animated ? "Frame" : "Page"} ${i + 1}`, className: "raw-thumb" }), el("figcaption", { textContent: `${i + 1}` })));
       }

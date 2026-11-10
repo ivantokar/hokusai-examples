@@ -558,3 +558,86 @@ import PDFKit
         }
     }
 }
+
+@Suite struct TextSourceTests {
+    private func service() -> RenderService { RenderService(uploads: UploadStore(), fixtures: fixtures) }
+    private func recipe(_ params: [String: ParamValue] = [:], steps: [Step] = [], format: String = "png") -> Recipe {
+        Recipe(source: RecipeSource(kind: "text", params: params), steps: steps, output: .init(format: format))
+    }
+    private func hasAlpha(_ data: Data) async throws -> Bool { try await Hokusai(data: data).metadata().pixel.hasAlpha }
+
+    @Test func aTextSourceRendersWithoutAnUpload() async throws {
+        let result = try await service().render(RenderRequest(recipe: recipe()))
+        #expect(result.width > 200 && result.height > 100)
+        #expect(result.data.prefix(4) == Data([0x89, 0x50, 0x4e, 0x47]))
+    }
+
+    @Test func sizeFollowsTheTextPaddingAndWrapping() async throws {
+        func size(_ params: [String: ParamValue]) async throws -> (Int, Int) { let r = try await service().render(RenderRequest(recipe: recipe(params))); return (r.width, r.height) }
+        let plain = try await size(["padding": .number(0)]), padded = try await size(["padding": .number(50)])
+        #expect(padded.0 == plain.0 + 100 && padded.1 == plain.1 + 100)
+        let long: [String: ParamValue] = ["content": .string("one two three four five six seven eight nine ten"), "padding": .number(0), "fontSize": .number(60)]
+        var wrapped = long; wrapped["wrapWidth"] = .number(300)
+        let flat = try await size(long), narrow = try await size(wrapped)
+        #expect(narrow.0 <= 300 && narrow.1 > flat.1)               // wrapped to 300 px, so taller and narrower
+        #expect(try await size(["content": .string("a\\nb"), "padding": .number(0)]).1 > (try await size(["content": .string("a"), "padding": .number(0)])).1)   // \n is a new line
+    }
+
+    @Test func aTransparentBackgroundKeepsAlphaAndAnOpaqueOneDoesNot() async throws {
+        let clear = try await service().render(RenderRequest(recipe: recipe(["background": .string("#00000000")])))
+        let solid = try await service().render(RenderRequest(recipe: recipe(["background": .string("#ffffff")])))
+        #expect(try await hasAlpha(clear.data))
+        #expect(!(try await hasAlpha(solid.data)))
+    }
+
+    @Test func stepsRunAfterTheSource() async throws {
+        let base = try await service().render(RenderRequest(recipe: recipe()))
+        let small = try await service().render(RenderRequest(recipe: recipe(steps: [Step(op: "resize", params: ["width": .number(300), "fit": .string("inside")])])))
+        #expect(small.width == 300 && small.width < base.width)
+    }
+
+    @Test func aRecipeWithNeitherASourceNorAnUploadIsRefused() async throws {
+        await #expect(throws: RecipeError.self) { _ = try await service().render(RenderRequest(recipe: Recipe(output: .init(format: "png")))) }
+        await #expect(throws: RenderError.self) { _ = try await service().render(RenderRequest(uploadId: "gone", recipe: Recipe(output: .init(format: "png")))) }
+        for bad in [RecipeSource(kind: "nope"), RecipeSource(kind: "text", params: ["content": .string("")]), RecipeSource(kind: "text", params: ["fontSize": .number(2)]), RecipeSource(kind: "text", params: ["colour": .string("red")])] {
+            await #expect(throws: (any Error).self) { _ = try await service().render(RenderRequest(recipe: Recipe(source: bad, output: .init(format: "png")))) }
+        }
+    }
+
+    @Test func theSourceSurvivesJSONAndAnOldRecipeStillDecodes() throws {
+        let original = recipe(["content": .string("Hi")])
+        let again = try JSONDecoder().decode(Recipe.self, from: try JSONEncoder().encode(original))
+        #expect(again == original && again.source?.kind == "text")
+        let old = try JSONDecoder().decode(Recipe.self, from: Data(#"{"version":1,"steps":[],"output":{"format":"png"}}"#.utf8))
+        #expect(old.source == nil)
+        let minimal = try JSONDecoder().decode(Recipe.self, from: Data(#"{"version":1,"source":{"kind":"text"},"steps":[],"output":{"format":"png"}}"#.utf8))
+        #expect(minimal.source?.params.isEmpty == true)
+    }
+
+    @Test func generatedSwiftStartsFromTheTextNotAFile() throws {
+        let r = recipe(["content": .string("Hi \"there\""), "wrapWidth": .number(600), "alignment": .string("left")], steps: [Step(op: "resize", params: ["width": .number(300)])])
+        let core = try SwiftCodeGenerator.swift(r)
+        #expect(core.contains(#"Hokusai.text("Hi \"there\"", layout: .width(600), style: TextStyle(font: "sans bold", fontSize: 120"#))
+        #expect(core.contains(".extend(top: 64") && core.contains(".flatten(background:") && core.contains(".resize(width: 300"))
+        #expect(!core.contains("input.jpg"))
+        // Every generated line must have balanced parentheses (the snippet check compiles it, this catches it sooner).
+        for line in core.split(separator: "\n") { #expect(line.filter { $0 == "(" }.count == line.filter { $0 == ")" }.count, "unbalanced: \(line)") }
+        #expect(core.contains("mode: .background(.sRGB8(red: 255, green: 253, blue: 247)))\n"))
+        let vapor = try SwiftCodeGenerator.swift(r, target: .vapor)
+        #expect(vapor.contains(#".get("banner")"#) && vapor.contains("try await Hokusai.text(") && !vapor.contains("hokusaiImage"))
+        let hb = try SwiftCodeGenerator.swift(r, target: .hummingbird)
+        #expect(hb.contains(#"router.get("banner")"#) && hb.contains("try await Hokusai.text(") && !hb.contains("hokusaiImage"))
+    }
+
+    @Test func aMaskTakenFromTheTextNamesItsPipelineToo() async throws {
+        let r = recipe(steps: [Step(op: "mask")])
+        let code = try SwiftCodeGenerator.swift(r)
+        #expect(code.contains("let image = try await Hokusai.text(") || code.contains("let image = try Hokusai.text("))
+        _ = try await service().render(RenderRequest(recipe: r))
+    }
+
+    @Test func theCatalogListsTheSource() throws {
+        let text = try #require(Catalog.sources.first { $0.id == "text" })
+        #expect(text.params.contains { $0.name == "content" } && text.params.contains { $0.name == "background" })
+    }
+}

@@ -64,6 +64,7 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 - The **catalog** (`recipes/Sources/HokusaiRecipes/Catalog.swift`) defines every operation once: its public API mapping, description, parameters with units, defaults and ranges, how to apply it and how to print it as Swift. The web UI is generated from `GET /api/catalog`.
 - The **servers** only adapt HTTP. Evaluation, the upload store and the JSON answers live in `HokusaiDemoServices` and are shared.
 - **Preview** is Hokusai output from the server. The recipe always runs on the full original; the preview only shrinks the *result* for display, so crop and text stay exact. **Full size** and **Export** render the real result.
+- A recipe can start from a **generated source** instead of an upload: `recipe.source` is `{ "kind": "text", "params": { … } }` (see `sources` in `GET /api/catalog`). Then no `uploadId` is sent, and the generated Swift is `Hokusai.text(...)`, or a `GET` route in Vapor and Hummingbird. The Web playground offers it as *Start from text* and the *Text card* recipe.
 - **Uploads** are held in memory with a size limit, a total budget, a count limit and a 10-minute lifetime. An upload id is a random token, never a path.
 - The code panel shows Swift for Hokusai alone, or inside a Vapor or Hummingbird route. A placeholder (`input.jpg`) stands in for your file; it never contains a server path.
 
@@ -76,7 +77,7 @@ It is ten lines in [`vapor-server/Sources/App/main.swift`](vapor-server/Sources/
 | `GET /api/capabilities` | libvips and Cairo versions, readable and writable formats |
 | `GET /api/status` | running and queued evaluations, the frozen runtime configuration, stored uploads |
 | `POST /api/uploads` (raw body) | `{ uploadId, width, height, orientedWidth, … }` |
-| `POST /api/render` `{ uploadId, recipe, previewMaxEdge?, stopBefore?, viewable? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
+| `POST /api/render` `{ uploadId?, recipe, previewMaxEdge?, stopBefore?, viewable? }` | the encoded image; `X-Hokusai-*` and `Server-Timing` headers. `stopBefore` (a step id) renders only the steps before it: the image a crop enters |
 | `POST /api/pdf` `{ uploadId?, document, previewPage? }` | a vector PDF built with HokusaiPDF, or a PNG of one page decoded from it; `X-Hokusai-Pdf-Pages`, `X-Hokusai-Selectable-Text` |
 | `POST /api/compare` `{ uploadId, recipe }` | the recipe through every encoder this runtime has: size, dimensions, time, or the reason one is missing |
 | `POST /api/raw/output` `{ uploadId, recipe, format, maxEdge? }` | the recipe's raw pixels with `X-Raw-*` headers for the layout, bit depth, stride and alpha convention |
@@ -123,7 +124,7 @@ Never commit an edited checkout.
 
 - Measured by the Runtime Lab on both backends: aborting a `/api/render` request in the browser does not stop the evaluation on the server; it finishes the work first. Treat browser-side cancellation as not proving native cancellation.
 
-- macOS: no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
+- macOS: no text source and no on-canvas crop yet, and the window UI has been built and its model tested but not driven by an automated UI test.
 - There is no in-page switch between the two backends: run the one you want. `scripts/parity.sh` is what keeps them equal, by sending the same requests to both. The macOS app has numeric crop only, no vector document builder yet, and takes its second layer image through a file picker (its output panel does offer the raster PDF and every encoder).
 - Raw pixels: 16-bit values are shown as little-endian, the server's native order here (checked against the 8-bit output); the library has no statistics or histogram API and the demo does not invent one. Animations can be inspected and read frame by frame but not edited or encoded as animations: that is not in the library.
 - Vector documents: pictures come from the bundled samples or your upload; there is no font upload, so text uses the system's sans, serif and monospace. The "selectable text" indicator in the Web UI is a heuristic (the PDF carries a text font with a character map); the unit tests confirm it with a real PDF reader on macOS.

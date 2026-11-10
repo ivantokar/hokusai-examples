@@ -85,6 +85,10 @@ for label, (steps, fmt) in recipes.items():
 
 recipe = {"version": 1, "steps": [{"op": "resize", "params": {"width": 400, "fit": "inside"}}], "output": {"format": "png"}}
 same("render: preview", post_each("/api/render", scene, {"recipe": recipe, "previewMaxEdge": 100}), headers=("x-hokusai-width", "x-hokusai-height"))
+for label, params in (("text source", {}), ("text source, wrapped and left aligned", {"wrapWidth": 400, "alignment": "left", "content": "one two three four five six seven"})):
+    r = [call(u, "POST", "/api/render", {"recipe": {"version": 1, "source": {"kind": "text", "params": params}, "steps": [], "output": {"format": "png"}}}) for u in urls]
+    same(f"render: {label}", r, headers=("content-type", "x-hokusai-width", "x-hokusai-height"))
+same("code: text source for Vapor", [call(u, "POST", "/api/code", {"target": "vapor", "recipe": {"version": 1, "source": {"kind": "text"}, "steps": [], "output": {"format": "png"}}}) for u in urls])
 same("code: core", post_each("/api/code", scene, {"recipe": recipe, "target": "core"}))
 same("inspect: metadata", post_each("/api/inspect", meta, {"recipe": {"version": 1, "steps": [], "output": {"format": "jpeg", "options": {"keepXmp": True}}}}))
 same("raw output", post_each("/api/raw/output", scene, {"recipe": recipe, "format": "rgba8", "maxEdge": 64}), headers=("x-raw-width", "x-raw-height", "x-raw-row-stride"))

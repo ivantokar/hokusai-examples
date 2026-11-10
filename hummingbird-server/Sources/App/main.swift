@@ -83,7 +83,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
         do { return jsonResponse(try await api.code(try await collect(request, limit: 1 << 20))) } catch { return failure(error) }
     }
     apiRoutes.post("inspect") { request, _ -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe?; let page: Int?; let assets: [String: String]? }
+        struct Body: Decodable { let uploadId: String?; let recipe: Recipe?; let page: Int?; let assets: [String: String]? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
             return jsonResponse(try await api.inspect(uploadId: body.uploadId, recipe: body.recipe, page: body.page, assets: body.assets))
@@ -115,7 +115,7 @@ func buildRouter(api: DemoAPI) -> Router<BasicRequestContext> {
         } catch { return failure(error) }
     }
     apiRoutes.post("compare") { request, _ -> Response in
-        struct Body: Decodable { let uploadId: String; let recipe: Recipe; let page: Int?; let assets: [String: String]? }
+        struct Body: Decodable { let uploadId: String?; let recipe: Recipe; let page: Int?; let assets: [String: String]? }
         do {
             let body = try JSONDecoder().decode(Body.self, from: try await collect(request, limit: 1 << 20))
             return jsonResponse(try await api.compare(uploadId: body.uploadId, recipe: body.recipe, page: body.page, assets: body.assets))

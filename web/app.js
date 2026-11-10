@@ -25,6 +25,13 @@ const state = {
 
 const ops = () => new Map(state.catalog.operations.map((o) => [o.id, o]));
 
+// A recipe may make its own pixels (text) instead of starting from an upload. The source is part of the recipe,
+// so undo and redo cover it, and the server needs no upload id for it.
+const SOURCE_ID = "__source";
+const hasInput = () => !!(state.recipe.source || state.upload);
+const currentUploadId = () => (state.recipe.source ? null : state.upload?.uploadId ?? null);
+const sourceSpec = () => state.catalog.sources.find((x) => x.id === state.recipe.source?.kind);
+
 // ---------- status ----------
 function setStatus(text, kind = "") {
   const s = $("status");
@@ -55,6 +62,7 @@ async function openBlob(blob, name) {
     const res = await fetch("/api/uploads", { method: "POST", body: blob });
     if (!res.ok) throw await apiError(res);
     state.upload = { ...(await res.json()), name }; state.page = 0;
+    if (state.recipe.source) { state.history.push(clone(state.recipe)); state.future = []; delete state.recipe.source; if (state.selected === SOURCE_ID) state.selected = null; }
     state.originalBlob = blob;
     if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
     state.originalUrl = URL.createObjectURL(blob);
@@ -83,10 +91,16 @@ function edit(mutator) {
 }
 function undo() { if (!state.history.length) return; state.future.push(clone(state.recipe)); state.recipe = state.history.pop(); fixSelection(); changed(true); }
 function redo() { if (!state.future.length) return; state.history.push(clone(state.recipe)); state.recipe = state.future.pop(); fixSelection(); changed(true); }
-function fixSelection() { if (!state.recipe.steps.some((s) => s.id === state.selected)) state.selected = null; syncCropButton(); }
+function fixSelection() { if (!state.recipe.steps.some((s) => s.id === state.selected) && !(state.selected === SOURCE_ID && state.recipe.source)) state.selected = null; syncCropButton(); }
 
 function changed(rerenderPanels) {
   state.revision++; fixSelection();
+  const input = hasInput();
+  $("empty-state").hidden = input;
+  if (!input) { state.lastGood = null; $("imgwrap").hidden = true; }
+  for (const id of ["export", "accurate", "reset"]) $(id).disabled = !input;
+  $("show-original").disabled = !!state.recipe.source;
+  if (state.recipe.source && state.view === "original") state.view = "result";
   $("undo").disabled = !state.history.length; $("redo").disabled = !state.future.length;
   if (rerenderPanels) { drawSteps(); drawSettings(); drawOutput(); }
   else { drawSteps(); drawOutput(); }
@@ -96,8 +110,8 @@ function changed(rerenderPanels) {
 // ---------- pipeline list ----------
 function drawSteps() {
   const list = $("steps"); const o = ops();
-  $("steps-empty").hidden = state.recipe.steps.length > 0;
-  list.replaceChildren(...state.recipe.steps.map((step, i) => {
+  $("steps-empty").hidden = state.recipe.steps.length > 0 || !!state.recipe.source;
+  list.replaceChildren(...(state.recipe.source ? [sourceItem()] : []), ...state.recipe.steps.map((step, i) => {
     const spec = o.get(step.op);
     const li = el("li", { className: "step" + (step.enabled ? "" : " off"), draggable: true });
     li.dataset.id = step.id;
@@ -122,6 +136,40 @@ function drawSteps() {
     return li;
   }));
 }
+/** The pinned first entry of the pipeline when the recipe makes its own pixels. */
+function sourceItem() {
+  const spec = sourceSpec();
+  const li = el("li", { className: "step source" });
+  if (state.selected === SOURCE_ID) li.setAttribute("aria-current", "true");
+  const name = el("button", { className: "name", type: "button", textContent: `Source: ${spec.title}` });
+  name.setAttribute("aria-label", `Source: ${spec.title}, generated, not an uploaded image`);
+  name.onclick = () => select(SOURCE_ID);
+  const drop = el("button", { type: "button", className: "mini", textContent: "✕", title: "Use an image instead" });
+  drop.setAttribute("aria-label", "Use an image instead of the generated source");
+  drop.onclick = (e) => { e.stopPropagation(); useImageInstead(); };
+  li.append(el("span", { className: "num", textContent: "◎" }), name, drop);
+  return li;
+}
+
+/** Start from text instead of an image. The source belongs to the recipe, so undo covers it. */
+function startFromText(params = {}) {
+  edit((r) => { r.source = { kind: "text", params }; });
+  state.selected = SOURCE_ID; state.view = "result"; state.page = 0; drawSteps(); drawSettings();
+}
+function useImageInstead() {
+  edit((r) => { delete r.source; });
+  if (state.selected === SOURCE_ID) state.selected = null;
+  drawSteps(); drawSettings();
+  if (!state.upload) setStatus("Open an image or start from text.");
+}
+function setSourceParam(p, value) {
+  if (coalesce !== "source" + p.name) { state.history.push(clone(state.recipe)); state.future = []; coalesce = "source" + p.name; }
+  clearTimeout(setParam.t); setParam.t = setTimeout(() => { coalesce = null; }, 600);
+  const params = state.recipe.source.params;
+  if (value === p.default) delete params[p.name]; else params[p.name] = value;
+  changed(false);
+}
+
 function select(id) {
   state.selected = id; drawSteps(); drawSettings(); syncCropButton();
   if (selectedCrop()) { setView("crop"); ensureCropBase(); }
@@ -159,8 +207,23 @@ function addStep(opId) {
 }
 
 // ---------- settings ----------
+function drawSourceSettings(box) {
+  const spec = sourceSpec(), params = state.recipe.source.params;
+  $("settings-title").textContent = `Source: ${spec.title}`;
+  const control = (p) => field(p, params, (v) => setSourceParam(p, v));
+  const reset = el("button", { type: "button", className: "btn small", textContent: "Reset to defaults" });
+  reset.onclick = () => { edit((r) => { r.source.params = {}; }); drawSettings(); };
+  const use = el("button", { type: "button", className: "btn small", textContent: "Use an image instead" }); use.onclick = useImageInstead;
+  box.replaceChildren(el("p", { className: "api", textContent: spec.api }), el("p", { className: "note", textContent: spec.summary }), ...(spec.previewNote ? [el("p", { className: "note", textContent: spec.previewNote })] : []),
+    ...spec.params.filter((p) => !p.advanced).map(control),
+    ...(spec.params.some((p) => p.advanced) ? [el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...spec.params.filter((p) => p.advanced).map(control))] : []),
+    reset, use);
+}
+
 function drawSettings() {
-  const box = $("settings"); const step = state.recipe.steps.find((s) => s.id === state.selected);
+  const box = $("settings");
+  if (state.selected === SOURCE_ID && state.recipe.source) { drawSourceSettings(box); return; }
+  const step = state.recipe.steps.find((s) => s.id === state.selected);
   if (!step) { $("settings-title").textContent = "Settings"; box.replaceChildren(el("p", { className: "empty", textContent: "Select a step to edit it." })); return; }
   const spec = ops().get(step.op);
   $("settings-title").textContent = spec.title;
@@ -231,7 +294,7 @@ function drawOutput() {
 let renderTimer = null, inflight = null;
 function scheduleRender() {
   clearTimeout(renderTimer);
-  if (!state.upload) return;
+  if (!hasInput()) return;
   $("updating").hidden = false;
   renderTimer = setTimeout(render, DEBOUNCE_MS);
 }
@@ -240,7 +303,7 @@ async function render(retry = true) {
   const rev = state.revision; inflight?.abort(); inflight = new AbortController();
   const started = performance.now();
   try {
-    const body = { uploadId: state.upload.uploadId, recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true, page: state.page || null, assets: state.assets };
+    const body = { uploadId: currentUploadId(), recipe: recipeForServer(), previewMaxEdge: state.full ? null : PREVIEW_EDGE, viewable: true, page: state.page || null, assets: state.assets };
     const res = await fetch("/api/render", { method: "POST", body: JSON.stringify(body), signal: inflight.signal });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob();
@@ -287,7 +350,7 @@ function scheduleCode() { clearTimeout(codeTimer); codeTimer = setTimeout(loadCo
 async function loadCode() {
   const rev = ++codeRev;
   try {
-    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target, uploadId: state.upload?.uploadId ?? null, page: state.page || null, assets: state.assets }) });
+    const res = await fetch("/api/code", { method: "POST", body: JSON.stringify({ recipe: state.recipe, target: state.target, uploadId: currentUploadId(), page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const { code } = await res.json(); if (rev !== codeRev) return;
     state.codeText = code; drawCode();
@@ -303,10 +366,11 @@ function drawCode() {
   $("code").textContent = state.tab === "curl" ? curlText() : state.codeText;
 }
 function drawFacts() {
-  const f = state.lastGood, u = state.upload; if (!f || !u) return;
+  const f = state.lastGood, u = state.upload; if (!f || (!u && !state.recipe.source)) return;
   const rows = [
     ["Backend", `${state.backend.backend} (Hokusai ${state.backend.hokusai})`],
-    ["Source", `${u.width} × ${u.height} stored · ${u.orientedWidth} × ${u.orientedHeight} upright · ${u.format ?? "?"} · ${fmtBytes(u.bytes)}`],
+    state.recipe.source ? ["Source", "Generated from text: nothing was uploaded"]
+      : ["Source", `${u.width} × ${u.height} stored · ${u.orientedWidth} × ${u.orientedHeight} upright · ${u.format ?? "?"} · ${fmtBytes(u.bytes)}`],
     [f.proxyOf ? "Proxy shown" : f.full ? "Result (full size)" : "Preview", `${f.width} × ${f.height} · ${fmtBytes(f.bytes)}${f.proxyOf ? ` (a PNG standing in for ${f.proxyOf})` : ""}`],
     ...(f.proxyOf ? [["Real encoded file", `${fmtBytes(f.realBytes)}${f.pdfPages ? ` · ${f.pdfPages} page(s), ${f.pdfSize}` : ""}`]] : []),
     ["Server work", isNaN(f.server) ? "n/a" : `${f.server.toFixed(0)} ms (evaluate + encode)`],
@@ -320,10 +384,10 @@ function drawFacts() {
 async function doExport() {
   setStatus("Rendering the export from the original…");
   try {
-    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null, assets: state.assets }) });
+    const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: currentUploadId(), recipe: state.recipe, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); const spec = state.catalog.outputs.find((o) => o.format === state.recipe.output.format);
-    const base = (state.upload.name || "image").replace(/\.[^.]+$/, "");
+    const base = (state.recipe.source ? "text" : state.upload?.name || "image").replace(/\.[^.]+$/, "");
     const a = el("a", { href: URL.createObjectURL(blob), download: `${base}-hokusai.${spec.fileExtension}` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     setStatus(`Exported ${res.headers.get("x-hokusai-width")} × ${res.headers.get("x-hokusai-height")} · ${fmtBytes(blob.size)} ${spec.title}`);
   } catch (e) { setStatus(e.message, "error"); }
@@ -333,12 +397,14 @@ async function doExport() {
 
 function loadPreset(id) {
   const p = state.catalog.presets.find((x) => x.id === id); if (!p) return;
-  const apply = () => edit((r) => { const rec = clone(p.recipe); rec.steps = rec.steps.map((s) => ({ ...s, id: uid(), enabled: s.enabled ?? true, params: s.params ?? {} })); Object.assign(r, rec); });
-  const go = () => { apply(); state.selected = state.recipe.steps[0]?.id ?? null; drawSteps(); drawSettings(); };
-  if (!state.upload || state.upload.name !== p.sample && !state.upload.custom) openSample(p.sample).then(go); else go();
+  const apply = () => edit((r) => { const rec = clone(p.recipe); rec.steps = rec.steps.map((s) => ({ ...s, id: uid(), enabled: s.enabled ?? true, params: s.params ?? {} })); delete r.source; Object.assign(r, rec); });
+  const go = () => { apply(); state.selected = state.recipe.source ? SOURCE_ID : state.recipe.steps[0]?.id ?? null; state.view = "result"; drawSteps(); drawSettings(); };
+  if (p.recipe.source) go();                                              // it makes its own pixels: no sample needed
+  else if (!state.upload || state.upload.name !== p.sample && !state.upload.custom) openSample(p.sample).then(go); else go();
 }
 
 function wire() {
+  $("start-text").onclick = () => startFromText();
   $("file").onchange = (e) => { const f = e.target.files[0]; if (f) openBlob(f, f.name).then(() => { state.upload && (state.upload.custom = true); }); e.target.value = ""; };
   for (const s of state.catalog.samples) {
     $("sample").append(el("option", { value: s.name, textContent: s.title }));
@@ -388,7 +454,7 @@ function setInspectTab(name) {
   state.itab = name;
   for (const b of document.querySelectorAll("#inspect-tabs button")) { const on = b.dataset.itab === name; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
   $("inspect-body").hidden = name !== "metadata"; $("raw-body").hidden = name !== "raw"; $("pages-body").hidden = name !== "pages";
-  const ctx = { state, recipe: () => state.recipe, setPage: (p) => { state.page = p; changed(false); } };
+  const ctx = { state, recipe: () => state.recipe, hasInput, uploadId: currentUploadId, baseName: () => (state.recipe.source ? "text" : state.upload?.name || "image"), setPage: (p) => { state.page = p; changed(false); } };
   if (name === "metadata") loadInspect();
   if (name === "raw") { rawView ??= initRaw($("raw-body"), ctx); rawView.show(); }
   if (name === "pages") { pagesView ??= initPages($("pages-body"), ctx); pagesView.show(); }
@@ -398,7 +464,7 @@ function exportContext() {
     state,
     useFormat: (format) => edit((r) => { r.output = { format, options: {} }; }),
     setOutputParam,
-    onUploadNeeded: () => state.upload,
+    hasInput, uploadId: currentUploadId, baseName: () => (state.recipe.source ? "text" : state.upload?.name || "image"),
     recipe: () => state.recipe,
   };
 }
@@ -420,12 +486,12 @@ function setView(v) {
 
 // ---------- inspect ----------
 let inspectTimer = null, inspectRev = 0;
-function scheduleInspect() { if (state.section !== "inspect" || state.itab !== "metadata" || !state.upload) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
+function scheduleInspect() { if (state.section !== "inspect" || state.itab !== "metadata" || !hasInput()) return; clearTimeout(inspectTimer); inspectTimer = setTimeout(loadInspect, 250); }
 async function loadInspect() {
-  if (!state.upload) { $("inspect-body").replaceChildren(el("p", { className: "empty", textContent: "Open an image to inspect it." })); return; }
+  if (!hasInput()) { $("inspect-body").replaceChildren(el("p", { className: "empty", textContent: "Open an image to inspect it." })); return; }
   const rev = ++inspectRev;
   try {
-    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: state.recipe, page: state.page || null, assets: state.assets }) });
+    const res = await fetch("/api/inspect", { method: "POST", body: JSON.stringify({ uploadId: currentUploadId(), recipe: state.recipe, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const data = await res.json(); if (rev !== inspectRev) return;
     drawInspect(data);
@@ -458,7 +524,7 @@ function drawInspect({ source, output, outputFormat }) {
     return t;
   };
   $("inspect-body").replaceChildren(
-    table(`Source: ${state.upload.name}`, source, false),
+    table(`Source: ${state.recipe.source ? "generated text" : state.upload.name}`, source, false),
     table(`Exported output (${outputFormat}), encoded and read back`, output, true),
     el("p", { className: "note", textContent: "Orientation and density are stored inside an EXIF block, so a small EXIF block can remain while camera details are gone. An embedded ICC profile is not a colour conversion: the pixels are not changed by it. The right column is measured on the exported bytes, not inferred from the settings." }),
   );
@@ -479,17 +545,17 @@ function cropRect(step) {
 }
 function cropSignature(step) {
   const i = state.recipe.steps.findIndex((s) => s.id === step.id);
-  return JSON.stringify([state.upload?.uploadId, step.id, state.recipe.steps.slice(0, i).filter((s) => s.enabled).map((s) => [s.op, s.params])]);
+  return JSON.stringify([currentUploadId(), state.recipe.source, step.id, state.recipe.steps.slice(0, i).filter((s) => s.enabled).map((s) => [s.op, s.params])]);
 }
 function scheduleCropBase() { if (!selectedCrop()) return; clearTimeout(crop.timer); crop.timer = setTimeout(ensureCropBase, 200); }
 async function ensureCropBase() {
-  const step = selectedCrop(); if (!step || !state.upload) return;
+  const step = selectedCrop(); if (!step || !hasInput()) return;
   const sig = cropSignature(step);
   if (crop.base?.sig === sig) { drawCrop(); return; }
   const rev = ++crop.rev; crop.ctrl?.abort(); crop.ctrl = new AbortController();
   try {
     const recipe = clone(state.recipe); recipe.output = { format: "webp", options: { quality: 90 } };
-    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: state.upload.uploadId, recipe, stopBefore: step.id, page: state.page || null, assets: state.assets }) });
+    const res = await fetch("/api/render", { method: "POST", signal: crop.ctrl.signal, body: JSON.stringify({ uploadId: currentUploadId(), recipe, stopBefore: step.id, page: state.page || null, assets: state.assets }) });
     if (!res.ok) throw await apiError(res);
     const blob = await res.blob(); if (rev !== crop.rev) return;
     if (crop.base?.url) URL.revokeObjectURL(crop.base.url);

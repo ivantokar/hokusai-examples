@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-53 implemented, 6 partial, 1 planned, 60 in total.
+54 implemented, 6 partial, 0 planned, 60 in total.
 
 
 ## Sources
@@ -15,7 +15,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Encoded data | `Hokusai(data:)` | implemented | Web: upload, samples. |
 | File URLs | `Hokusai(url:)` | partial | Generated Swift shows it with an input.jpg placeholder; macOS app will open files. The Web demo never reads server paths. |
 | Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response. |
-| Generated text as a source | `Hokusai.text(_:layout:style:)` | planned | Composition view. |
+| Generated text as a source | `Hokusai.text(_:layout:style:)` | implemented | Web playground: Start from text (or the Text card recipe): content, font, size, colour, alignment, wrapping, background and padding; no upload. The macOS app does not offer it yet. |
 | Raw pixels | `Hokusai(raw:)` | implemented | Inspect > Raw pixels (raw input). |
 
 ## Geometry

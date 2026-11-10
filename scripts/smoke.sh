@@ -233,6 +233,34 @@ assert ".recombine(.sepia)" in code, code
 PY
 ok "convolution kernels, colour matrices and affine transforms: catalog, rendering, refusals, generated Swift"
 
+# A text source: no upload at all, the recipe makes its own pixels.
+python3 - "$base" <<'PY' || fail "text source"
+import json, sys, urllib.error, urllib.request
+base = sys.argv[1]
+def post(path, body):
+    return urllib.request.urlopen(urllib.request.Request(base + path, data=json.dumps(body).encode()))
+def recipe(params=None, steps=None):
+    return {"version": 1, "source": {"kind": "text", "params": params or {}}, "steps": steps or [], "output": {"format": "png"}}
+catalog = json.load(urllib.request.urlopen(base + "/api/catalog"))
+assert any(s["id"] == "text" for s in catalog["sources"]), "the catalog lists no text source"
+r = post("/api/render", {"recipe": recipe({"padding": 0})})
+data = r.read()
+assert data[1:4] == b"PNG" and int(r.headers["x-hokusai-width"]) > 100, r.headers
+padded = post("/api/render", {"recipe": recipe({"padding": 50})})
+assert int(padded.headers["x-hokusai-width"]) == int(r.headers["x-hokusai-width"]) + 100, "padding is not added on both sides"
+small = post("/api/render", {"recipe": recipe(steps=[{"op": "resize", "params": {"width": 300, "fit": "inside"}}])})
+assert small.headers["x-hokusai-width"] == "300", "a step after the source did not run"
+facts = json.load(post("/api/inspect", {"recipe": recipe()}))
+assert facts["source"]["format"] == "png" and facts["output"] is not None, facts
+code = json.load(post("/api/code", {"recipe": recipe(), "target": "vapor"}))["code"]
+assert 'get("banner")' in code and "Hokusai.text(" in code and "hokusaiImage" not in code, code
+for bad in ({"version": 1, "steps": [], "output": {"format": "png"}},                                         # neither source nor upload
+            recipe({"content": ""}), {**recipe(), "source": {"kind": "nope"}}):
+    try: post("/api/render", {"recipe": bad}); raise SystemExit("should be refused: " + json.dumps(bad)[:80])
+    except urllib.error.HTTPError as e: assert e.code == 422, (bad, e.code)
+PY
+ok "text source: renders without an upload, steps follow it, inspect and code understand it, bad sources are refused"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

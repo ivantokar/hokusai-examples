@@ -47,6 +47,12 @@ public enum Presets {
                recipe: Recipe(name: "skew", steps: [
                 step("affine", ["matrix": .string("1 0.4 0 1")]),
                ], output: OutputSettings(format: "png"))),
+        Preset(id: "text-card", title: "Text card", summary: "No photo: a card made from text, wrapped and padded.", sample: "scene.png",
+               recipe: Recipe(name: "text-card", source: RecipeSource(kind: "text", params: [
+                "content": .string("Hokusai\\nimage processing for Swift"), "fontSize": n(110), "wrapWidth": n(0), "padding": n(80),
+               ]), steps: [
+                step("resize", ["width": n(1200), "fit": .string("inside")]),
+               ], output: OutputSettings(format: "png"))),
         Preset(id: "noir", title: "Noir", summary: "High-contrast black and white.", sample: "phone.jpg",
                recipe: Recipe(name: "noir", steps: [
                 step("autoOrient"),

@@ -25,8 +25,8 @@
   "area": "Sources",
   "item": "Generated text as a source",
   "api": "Hokusai.text(_:layout:style:)",
-  "status": "planned",
-  "where": "Composition view"
+  "status": "implemented",
+  "where": "Web playground: Start from text (or the Text card recipe): content, font, size, colour, alignment, wrapping, background and padding; no upload. The macOS app does not offer it yet"
  },
  {
   "area": "Sources",
