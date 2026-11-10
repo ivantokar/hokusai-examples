@@ -31,6 +31,22 @@ public enum Presets {
                 step("modulate", ["brightness": n(0.8)]),
                 step("text", ["content": .string("Hokusai"), "fontSize": n(96), "gravity": .string("southWest"), "offsetX": n(48), "offsetY": n(48)]),
                ], output: OutputSettings(format: "jpeg", options: ["quality": n(88)]))),
+        Preset(id: "relief", title: "Relief", summary: "An embossed look from a convolution kernel.", sample: "scene.png",
+               recipe: Recipe(name: "relief", steps: [
+                step("resize", ["width": n(900), "fit": .string("inside")]),
+                step("grayscale"),
+                step("convolve", ["kernel": .string("-2 -1 0 -1 1 1 0 1 2"), "offset": n(128)]),
+               ], output: OutputSettings(format: "png"))),
+        Preset(id: "sepia", title: "Sepia print", summary: "A colour matrix warms the picture and a pale border frames it.", sample: "scene.png",
+               recipe: Recipe(name: "sepia", steps: [
+                step("resize", ["width": n(1000), "fit": .string("inside")]),
+                step("recombine"),
+                step("extend", ["top": n(24), "left": n(24), "bottom": n(24), "right": n(24), "background": .string("#f4ecd8")]),
+               ], output: OutputSettings(format: "jpeg", options: ["quality": n(88)]))),
+        Preset(id: "skew", title: "Skew", summary: "An affine shear on a transparent canvas.", sample: "emblem.png",
+               recipe: Recipe(name: "skew", steps: [
+                step("affine", ["matrix": .string("1 0.4 0 1")]),
+               ], output: OutputSettings(format: "png"))),
         Preset(id: "noir", title: "Noir", summary: "High-contrast black and white.", sample: "phone.jpg",
                recipe: Recipe(name: "noir", steps: [
                 step("autoOrient"),

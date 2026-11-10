@@ -3,7 +3,7 @@
 import { initLab } from "./lab.js";
 import { initExport } from "./export.js";
 import { initRaw, initPages } from "./raw-pages.js";
-import { el, clone, uid, fmtBytes, apiError, field } from "./ui.js";
+import { el, clone, uid, fmtBytes, apiError, field, identityMatrix } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -167,8 +167,16 @@ function drawSettings() {
   const common = spec.params.filter((p) => !p.advanced), adv = spec.params.filter((p) => p.advanced);
   const nodes = [el("p", { className: "api", textContent: spec.api })];
   if (spec.previewNote) nodes.push(el("p", { className: "note", textContent: spec.previewNote }));
-  nodes.push(...common.map((p) => field(p, step.params, (v) => { setParam(step.id, p, v); if (p.name === "asset") drawSettings(); })));
-  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map((p) => field(p, step.params, (v) => { setParam(step.id, p, v); if (p.name === "asset") drawSettings(); }))));
+  const context = { siblings: spec.params, setMany: (values) => { setParams(step.id, values); drawSettings(); } };
+  const control = (p) => field(p, step.params, (v) => {
+    // A kernel's grid follows its size: choosing another size starts a new identity grid of that size.
+    const followers = spec.params.filter((q) => q.matrix?.columnsFrom === p.name);
+    if (followers.length) { context.setMany({ [p.name]: v, ...Object.fromEntries(followers.map((q) => [q.name, identityMatrix(Number(v))])) }); return; }
+    setParam(step.id, p, v);
+    if (p.name === "asset") drawSettings();
+  }, context);
+  nodes.push(...common.map(control));
+  if (adv.length) nodes.push(el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...adv.map(control)));
   if (step.op === "crop") nodes.push(cropControls(step));
   if ((step.op === "layer" || step.op === "mask") && (step.params.asset ?? "") === "second") nodes.push(secondImageControl());
   if (spec.params.length) { const r = el("button", { type: "button", className: "btn small", textContent: "Reset to defaults" }); r.onclick = () => { edit((rr) => { rr.steps.find((s) => s.id === step.id).params = {}; }); drawSettings(); }; nodes.push(r); }

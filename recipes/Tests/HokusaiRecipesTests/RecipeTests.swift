@@ -469,3 +469,92 @@ import PDFKit
         #expect(code.contains("let image = ") && code.contains("let image2 = image") && code.contains("image2.grayscale()"))
     }
 }
+
+@Suite struct MatrixOperationTests {
+    private func render(_ steps: [Step], format: String = "png") async throws -> RenderResult {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        return try await RenderService(uploads: store, fixtures: fixtures).render(RenderRequest(uploadId: id, recipe: Recipe(steps: steps, output: .init(format: format))))
+    }
+    private func pixels(_ png: Data) async throws -> Data { try await Hokusai(data: png).raw(.rgb8).data }
+
+    @Test func theIdentityKernelAndMatrixChangeNothingAndTheRestDo() async throws {
+        let plain = try await pixels(try await render([]).data)
+        #expect(try await pixels(try await render([Step(op: "convolve", params: ["kernel": .string("0 0 0 0 1 0 0 0 0")])]).data) == plain)
+        #expect(try await pixels(try await render([Step(op: "recombine", params: ["matrix": .string("1 0 0 0 1 0 0 0 1")])]).data) == plain)
+        #expect(try await pixels(try await render([Step(op: "convolve")]).data) != plain)       // the default is a sharpen
+        #expect(try await pixels(try await render([Step(op: "recombine")]).data) != plain)      // the default is sepia
+    }
+
+    @Test func aFiveByFiveKernelNeedsTwentyFiveWeights() async throws {
+        let blur = Step(op: "convolve", params: ["size": .string("5"), "kernel": .string("1 4 6 4 1 4 16 24 16 4 6 24 36 24 6 4 16 24 16 4 1 4 6 4 1"), "scale": .number(256)])
+        let blurred = try await render([blur])
+        #expect(try await pixels(blurred.data) != (try await pixels(try await render([]).data)))
+        await #expect(throws: RecipeError.self) { _ = try await render([Step(op: "convolve", params: ["size": .string("5")])]) }
+    }
+
+    @Test func wrongShapesAndZeroScaleAreRefusedWithTheirName() async throws {
+        for (step, name) in [
+            (Step(op: "convolve", params: ["kernel": .string("1 2 3")]), "kernel"),
+            (Step(op: "convolve", params: ["scale": .number(0)]), "scale"),
+            (Step(op: "convolve", params: ["kernel": .string("1 x 3 4 5 6 7 8 9")]), "kernel"),
+            (Step(op: "recombine", params: ["matrix": .string("1 0 0 1")]), "matrix"),
+            (Step(op: "affine", params: ["matrix": .string("1 2 2 4")]), "matrix"),   // a·d − b·c = 0
+            (Step(op: "affine", params: ["matrix": .string("1 0 0")]), "matrix"),
+        ] {
+            do { _ = try await render([step]); Issue.record("\(step.op) \(name) was accepted") }
+            catch let RecipeError.invalidParameter(_, parameter, _) { #expect(parameter == name) }
+        }
+    }
+
+    @Test func anAffineShearGrowsTheCanvasAndRotationKeepsTheWholeImage() async throws {
+        let shear = try await render([Step(op: "affine", params: ["matrix": .string("1 0.4 0 1")])])
+        #expect(shear.width > 1600 && shear.height == 1000)         // x′ = x + 0.4·y
+        let scaled = try await render([Step(op: "affine", params: ["matrix": .string("1.5 0 0 1.5")])])
+        #expect((scaled.width, scaled.height) == (2400, 1500))
+        let rotated = try await render([Step(op: "affine", params: ["matrix": .string("0.9659 -0.2588 0.2588 0.9659")])])
+        #expect(rotated.width > 1600 && rotated.height > 1000)
+    }
+
+    @Test func theGeneratedSwiftNamesTheLibraryCalls() throws {
+        func code(_ step: Step) throws -> String { try SwiftCodeGenerator.swift(Recipe(steps: [step], output: .init(format: "png"))) }
+        let sharpen = try code(Step(op: "convolve"))
+        #expect(sharpen.contains(".convolve(try ConvolutionKernel(width: 3, height: 3, values: [0, -1, 0, -1, 5, -1, 0, -1, 0]))"))
+        let emboss = try code(Step(op: "convolve", params: ["kernel": .string("-2 -1 0 -1 1 1 0 1 2"), "offset": .number(128)]))
+        #expect(emboss.contains("offset: 128"))
+        #expect(try code(Step(op: "recombine")).contains(".recombine(.sepia)"))
+        #expect(try code(Step(op: "recombine", params: ["matrix": .string("1.2 0 0 0 1 0 0 0 0.8")])).contains("ColorMatrix([1.2, 0, 0, 0, 1, 0, 0, 0, 0.8])"))
+        let affine = try code(Step(op: "affine", params: ["matrix": .string("1 0.4 0 1"), "interpolation": .string("bicubic"), "edges": .string("copy")]))
+        #expect(affine.contains(".affine(AffineMatrix(a: 1, b: 0.4, c: 0, d: 1), edges: .copy, interpolation: .bicubic)"))
+    }
+
+    @Test func theCatalogDescribesTheGridsAndTheirPresets() throws {
+        let catalog = Catalog.operations
+        for (id, name) in [("convolve", "kernel"), ("recombine", "matrix"), ("affine", "matrix")] {
+            let spec = try #require(catalog.first { $0.id == id }?.params.first { $0.name == name })
+            #expect(spec.kind == .matrix)
+            let matrix = try #require(spec.matrix)
+            #expect(!matrix.presets.isEmpty)
+            #expect(matrix.columns != nil || matrix.columnsFrom != nil)
+            // Every preset must itself be a valid value, with the right number of numbers for its grid.
+            for preset in matrix.presets {
+                let count = Params.parseNumbers(preset.values)?.count
+                let side = matrix.columns ?? { if case .string(let s)? = preset.params[matrix.columnsFrom ?? ""] { Int(s) } else { nil } }()
+                if matrix.columnsFrom != nil { #expect(count == (side ?? 0) * (side ?? 0), "\(id): \(preset.label)") }
+                else { #expect(count == (id == "recombine" ? 9 : 4), "\(id): \(preset.label)") }
+            }
+        }
+    }
+
+    @Test func everyPresetRendersWithoutError() async throws {
+        for op in ["convolve", "recombine", "affine"] {
+            let spec = try #require(Catalog.operations.first { $0.id == op }?.params.first { $0.name == (op == "convolve" ? "kernel" : "matrix") })
+            for preset in try #require(spec.matrix).presets {
+                var params: [String: ParamValue] = [spec.name: .string(preset.values)]
+                params.merge(preset.params) { $1 }
+                let result = try await render([Step(op: op, params: params)])
+                #expect(result.width > 0, "\(op): \(preset.label)")
+            }
+        }
+    }
+}

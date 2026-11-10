@@ -187,4 +187,115 @@ let layerOperations: [OperationDef] = [
        swift: { p in ".extractChannel(.\(p.string("channel")))" }),
 ]
 
-let allOperations: [OperationDef] = coreOperations + layerOperations
+// MARK: - Matrices: convolution kernels, colour matrices, affine transforms
+
+/// Kernels worth starting from. Each sets the grid and the sibling `size`, `scale` and `offset`.
+private let kernelPresets: [(label: String, values: String, params: [String: ParamValue])] = [
+    ("Sharpen", "0 -1 0 -1 5 -1 0 -1 0", ["size": .string("3"), "scale": .number(1), "offset": .number(0)]),
+    ("Box blur 3×3", "1 1 1 1 1 1 1 1 1", ["size": .string("3"), "scale": .number(9), "offset": .number(0)]),
+    ("Gaussian blur 5×5", "1 4 6 4 1 4 16 24 16 4 6 24 36 24 6 4 16 24 16 4 1 4 6 4 1", ["size": .string("5"), "scale": .number(256), "offset": .number(0)]),
+    ("Emboss", "-2 -1 0 -1 1 1 0 1 2", ["size": .string("3"), "scale": .number(1), "offset": .number(128)]),
+    ("Edges (Laplacian)", "-1 -1 -1 -1 8 -1 -1 -1 -1", ["size": .string("3"), "scale": .number(1), "offset": .number(0)]),
+    ("Sobel, vertical edges", "-1 0 1 -2 0 2 -1 0 1", ["size": .string("3"), "scale": .number(1), "offset": .number(128)]),
+    ("Identity (changes nothing)", "0 0 0 0 1 0 0 0 0", ["size": .string("3"), "scale": .number(1), "offset": .number(0)]),
+]
+
+private let colourMatrixPresets: [(label: String, values: String, params: [String: ParamValue])] = [
+    ("Identity (changes nothing)", "1 0 0 0 1 0 0 0 1", [:]),
+    ("Sepia", "0.393 0.769 0.189 0.349 0.686 0.168 0.272 0.534 0.131", [:]),
+    ("Greyscale (Rec. 709)", "0.2126 0.7152 0.0722 0.2126 0.7152 0.0722 0.2126 0.7152 0.0722", [:]),
+    ("Swap red and blue", "0 0 1 0 1 0 1 0 0", [:]),
+    ("Warm: more red, less blue", "1.2 0 0 0 1 0 0 0 0.8", [:]),
+    ("Only the green channel", "0 1 0 0 1 0 0 1 0", [:]),
+]
+
+private let affinePresets: [(label: String, values: String, params: [String: ParamValue])] = [
+    ("Shear sideways", "1 0.4 0 1", [:]),
+    ("Shear vertically", "1 0 0.4 1", [:]),
+    ("Rotate 15°", "0.9659 -0.2588 0.2588 0.9659", [:]),
+    ("Scale 1.5×", "1.5 0 0 1.5", [:]),
+    ("Squeeze horizontally", "0.6 0 0 1", [:]),
+    ("Identity (changes nothing)", "1 0 0 1", [:]),
+]
+
+private func numberList(_ values: [Double]) -> String { values.map(format).joined(separator: ", ") }
+
+let matrixOperations: [OperationDef] = [
+    op("convolve", "Convolution kernel", .effects, api: "convolve(_:)",
+       "Slides a small grid of weights over the image: each pixel becomes the weighted sum of its neighbours, divided by the scale, plus the offset. Blur, sharpen, emboss and edge filters are all kernels.",
+       params: [
+        choice("size", "Grid size", "3", [("3", "3 × 3"), ("5", "5 × 5"), ("7", "7 × 7")], help: "Changing the size starts a new identity grid."),
+        matrix("kernel", "Weights", "0 -1 0 -1 5 -1 0 -1 0", columnsFrom: "size", presets: kernelPresets,
+               help: "Row by row, top to bottom. Weights that add up to 1 keep the brightness; a kernel that adds up to 0 (edges, emboss) leaves flat areas black unless you add an offset."),
+        num("scale", "Divide by", 1, min: -1000, max: 1000, step: 1, help: "The weighted sum is divided by this. It cannot be zero."),
+        num("offset", "Add", 0, min: -255, max: 255, step: 1, help: "Added after dividing, on the 0 to 255 scale. 128 centres an edge or emboss result on mid grey."),
+       ],
+       apply: { img, p in
+        let side = Int(p.string("size")) ?? 3, values = p.numbers("kernel")
+        guard values.count == side * side else { throw RecipeError.invalidParameter(operation: "convolve", name: "kernel", reason: "expected \(side * side) weights for a \(side)×\(side) grid, got \(values.count)") }
+        guard p.double("scale") != 0 else { throw RecipeError.invalidParameter(operation: "convolve", name: "scale", reason: "cannot be zero") }
+        return img.convolve(try ConvolutionKernel(width: side, height: side, values: values, scale: p.double("scale"), offset: p.double("offset")))
+       },
+       swift: { p in
+        let side = Int(p.string("size")) ?? 3
+        var args = "width: \(side), height: \(side), values: [\(numberList(p.numbers("kernel")))]"
+        if !p.isDefault("scale") { args += ", scale: \(format(p.double("scale")))" }
+        if !p.isDefault("offset") { args += ", offset: \(format(p.double("offset")))" }
+        return ".convolve(try ConvolutionKernel(\(args)))"
+       }),
+
+    op("recombine", "Colour matrix", .color, api: "recombine(_:)",
+       "Mixes the red, green and blue channels: each output channel is a weighted sum of the three input channels. Sepia, greyscale and channel swaps are colour matrices.",
+       params: [matrix("matrix", "Weights", "0.393 0.769 0.189 0.349 0.686 0.168 0.272 0.534 0.131", columns: 3, presets: colourMatrixPresets,
+                       help: "Rows are the output red, green and blue; columns are the input red, green and blue. The identity matrix changes nothing. Applied to sRGB values; alpha is kept.")],
+       apply: { img, p in
+        let values = p.numbers("matrix")
+        guard values.count == 9 else { throw RecipeError.invalidParameter(operation: "recombine", name: "matrix", reason: "expected 9 weights (3×3), got \(values.count)") }
+        return img.recombine(try ColorMatrix(values))
+       },
+       swift: { p in
+        let values = p.numbers("matrix")
+        func same(_ m: ColorMatrix) -> Bool { m.values.count == values.count && zip(m.values, values).allSatisfy { abs($0 - $1) < 1e-9 } }
+        if same(.sepia) { return ".recombine(.sepia)" }
+        if same(.luminance) { return ".recombine(.luminance)" }
+        if same(.swapRedBlue) { return ".recombine(.swapRedBlue)" }
+        return ".recombine(try ColorMatrix([\(numberList(values))]))"
+       }),
+
+    op("affine", "Affine transform", .geometry, api: "affine(_:inputOffset:outputOffset:edges:interpolation:)",
+       "Maps every point of the image through a 2×2 matrix: x′ = a·x + b·y and y′ = c·x + d·y. Scaling, shearing and rotating are all affine; the result is the bounding box of the transformed image.",
+       params: [
+        matrix("matrix", "Matrix", "1 0.4 0 1", columns: 2, presets: affinePresets,
+               help: "a b on the first row, c d on the second. It must be invertible: a·d − b·c cannot be zero."),
+        choice("edges", "Fill uncovered areas with", "colour", [("colour", "A colour"), ("copy", "The nearest edge pixel"), ("repeat", "A tiled copy"), ("mirror", "A mirrored tiling")]),
+        color("background", "Colour", "#ffffff00"),
+        choice("interpolation", "Interpolation", "bilinear", ["nearest", "bilinear", "bicubic", "lbb", "nohalo", "vsqbs"].map { ($0, $0) }, advanced: true),
+        num("inputX", "Input offset x", 0, min: -10_000, max: 10_000, step: 1, unit: "px", advanced: true, help: "Added before the matrix."),
+        num("inputY", "Input offset y", 0, min: -10_000, max: 10_000, step: 1, unit: "px", advanced: true),
+        num("outputX", "Output offset x", 0, min: -10_000, max: 10_000, step: 1, unit: "px", advanced: true, help: "Added after the matrix."),
+        num("outputY", "Output offset y", 0, min: -10_000, max: 10_000, step: 1, unit: "px", advanced: true),
+       ],
+       apply: { img, p in
+        let m = p.numbers("matrix")
+        guard m.count == 4 else { throw RecipeError.invalidParameter(operation: "affine", name: "matrix", reason: "expected 4 values (a b c d), got \(m.count)") }
+        guard m[0] * m[3] - m[1] * m[2] != 0 else { throw RecipeError.invalidParameter(operation: "affine", name: "matrix", reason: "must be invertible (a·d − b·c cannot be zero)") }
+        let edges: ExtendMode = switch p.string("edges") { case "copy": .copy; case "repeat": .repeat; case "mirror": .mirror; default: .background(p.color("background")) }
+        return try img.affine(AffineMatrix(a: m[0], b: m[1], c: m[2], d: m[3]),
+                              inputOffset: AffineOffset(x: p.double("inputX"), y: p.double("inputY")),
+                              outputOffset: AffineOffset(x: p.double("outputX"), y: p.double("outputY")),
+                              edges: edges, interpolation: Interpolation(rawValue: p.string("interpolation")) ?? .bilinear)
+       },
+       swift: { p in
+        let m = p.numbers("matrix")
+        guard m.count == 4 else { return ".affine(/* four values: a b c d */)" }
+        var args = "AffineMatrix(a: \(format(m[0])), b: \(format(m[1])), c: \(format(m[2])), d: \(format(m[3])))"
+        if p.double("inputX") != 0 || p.double("inputY") != 0 { args += ", inputOffset: AffineOffset(x: \(format(p.double("inputX"))), y: \(format(p.double("inputY"))))" }
+        if p.double("outputX") != 0 || p.double("outputY") != 0 { args += ", outputOffset: AffineOffset(x: \(format(p.double("outputX"))), y: \(format(p.double("outputY"))))" }
+        let edges = p.string("edges") == "colour" ? ".background(\(Hex.swift(p.string("background"))))" : "." + (p.string("edges") == "repeat" ? "`repeat`" : p.string("edges"))
+        if !p.isDefault("edges") || !p.isDefault("background") { args += ", edges: \(edges)" }
+        if !p.isDefault("interpolation") { args += ", interpolation: .\(p.string("interpolation"))" }
+        return ".affine(\(args))"
+       }),
+]
+
+let allOperations: [OperationDef] = coreOperations + layerOperations + matrixOperations

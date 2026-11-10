@@ -89,6 +89,10 @@ select, input[type=text], input[type=search], input[type=number], textarea { bac
 .field input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .field input[type=number] { width: 84px; }
 .field select, .field input[type=text], .field textarea { width: 100%; }
+.matrix-box { display: grid; gap: 6px; }
+.matrix { display: grid; gap: 4px; }
+.matrix input[type=number] { width: 100%; min-width: 0; box-sizing: border-box; padding: 5px 2px; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.matrix input.diag { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
 .field .help { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .note { border-left: 3px solid var(--warn); padding: 4px 8px; background: var(--bg); font-size: 12px; margin: 0 0 12px; }
 details.adv { margin-top: 6px; }

@@ -202,6 +202,37 @@ assert ".resize(width: 500, height: 800, fit: .fill)" in code, code
 PY
 ok "image layers, second image by upload, refused paths, picture mask sized to its step"
 
+# Matrices: kernels, colour matrices and affine transforms are described by the catalog, and their grids are validated.
+python3 - "$base" "$id" <<'PY' || fail "matrix operations"
+import json, sys, urllib.error, urllib.request
+base, upload = sys.argv[1], sys.argv[2]
+def render(steps):
+    body = {"uploadId": upload, "recipe": {"version": 1, "steps": steps, "output": {"format": "png"}}}
+    r = urllib.request.urlopen(urllib.request.Request(base + "/api/render", data=json.dumps(body).encode()))
+    return r.read(), r.headers
+catalog = json.load(urllib.request.urlopen(base + "/api/catalog"))
+ops = {o["id"]: o for o in catalog["operations"]}
+for op, name in (("convolve", "kernel"), ("recombine", "matrix"), ("affine", "matrix")):
+    spec = next(p for p in ops[op]["params"] if p["name"] == name)
+    assert spec["kind"] == "matrix" and spec["matrix"]["presets"], op
+plain, h0 = render([])
+assert render([{"op": "convolve"}])[0] != plain, "the default kernel (sharpen) changed nothing"
+assert render([{"op": "convolve", "params": {"kernel": "0 0 0 0 1 0 0 0 0"}}])[0] == plain, "the identity kernel changed the pixels"
+assert render([{"op": "recombine", "params": {"matrix": "1 0 0 0 1 0 0 0 1"}}])[0] == plain, "the identity colour matrix changed the pixels"
+assert render([{"op": "recombine"}])[0] != plain, "sepia changed nothing"
+_, sheared = render([{"op": "affine", "params": {"matrix": "1 0.4 0 1"}}])
+assert int(sheared["x-hokusai-width"]) > int(h0["x-hokusai-width"]), "a shear should widen the canvas"
+for step in ({"op": "convolve", "params": {"kernel": "1 2 3"}}, {"op": "convolve", "params": {"scale": 0}},
+             {"op": "recombine", "params": {"matrix": "1 0 0 1"}}, {"op": "affine", "params": {"matrix": "1 2 2 4"}}):
+    try: render([step]); raise SystemExit(f"{step} should be refused")
+    except urllib.error.HTTPError as e:
+        assert e.code == 422, (step, e.code)
+        assert json.load(e)["error"]["message"], step
+code = json.load(urllib.request.urlopen(urllib.request.Request(base + "/api/code", data=json.dumps({"recipe": {"version": 1, "steps": [{"op": "recombine"}], "output": {"format": "png"}}}).encode())))["code"]
+assert ".recombine(.sepia)" in code, code
+PY
+ok "convolution kernels, colour matrices and affine transforms: catalog, rendering, refusals, generated Swift"
+
 curl -fsS -X POST "$base/api/code" -d "{\"recipe\":$recipe,\"target\":\"core\"}" | json 'd["code"]' | grep -q ".rotate(by: 90)" || fail "code"
 ok "generated Swift"
 echo "smoke passed for $expect_backend"

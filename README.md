@@ -119,7 +119,7 @@ Never commit an edited checkout.
 
 ## Known limitations
 
-- Layers and masks use pictures from a fixed set of bundled samples or from your second image. A picture mask is stretched to the size of the image entering its step, so the demo measures that size by running the earlier steps (and the generated Swift names it). Convolution kernels, colour matrices and affine transforms are not in the catalog yet.
+- Layers and masks use pictures from a fixed set of bundled samples or from your second image. A picture mask is stretched to the size of the image entering its step, so the demo measures that size by running the earlier steps (and the generated Swift names it). Convolution kernels (3×3 to 7×7), colour matrices (3×3) and affine transforms (2×2 with offsets) are edited as grids of numbers with presets; an affine transform's output area is not exposed.
 
 - Measured by the Runtime Lab on both backends: aborting a `/api/render` request in the browser does not stop the evaluation on the server; it finishes the work first. Treat browser-side cancellation as not proving native cancellation.
 

@@ -24,12 +24,34 @@ public enum ParamValue: Codable, Hashable, Sendable {
     }
 }
 
-public enum ParamKind: String, Codable, Sendable { case number, integer, boolean, choice, color, text }
+public enum ParamKind: String, Codable, Sendable { case number, integer, boolean, choice, color, text, matrix }
 
 public struct Choice: Codable, Hashable, Sendable {
     public let value: String
     public let label: String
     public init(value: String, label: String) { self.value = value; self.label = label }
+}
+
+/// A grid of numbers, stored in a recipe as one string of space-separated values, row by row.
+public struct MatrixSpec: Codable, Sendable {
+    /// Columns when fixed, for example 3 for a colour matrix.
+    public var columns: Int?
+    /// The name of a sibling parameter whose value is the side of a square grid, for a kernel whose size is chosen.
+    public var columnsFrom: String?
+    /// Named starting points. Picking one sets the grid and any sibling parameters it names.
+    public var presets: [MatrixPreset]
+
+    /// The identity grid of a side, in the string form a recipe stores.
+    public static func identity(side: Int) -> String {
+        (0..<side * side).map { $0 % (side + 1) == 0 ? "1" : "0" }.joined(separator: " ")
+    }
+}
+
+public struct MatrixPreset: Codable, Sendable {
+    public let label: String
+    public let values: String
+    /// Sibling parameters the preset also sets (the kernel's size, scale, offset).
+    public let params: [String: ParamValue]
 }
 
 /// Describes one control: its type, unit, default and range. The Web UI is generated from this.
@@ -46,6 +68,8 @@ public struct ParamSpec: Codable, Sendable {
     /// Shown under "Advanced" instead of next to the common controls.
     public var advanced: Bool
     public var help: String?
+    /// For `matrix` parameters: the grid's shape and presets.
+    public var matrix: MatrixSpec? = nil
 }
 
 public enum OperationGroup: String, Codable, CaseIterable, Sendable {

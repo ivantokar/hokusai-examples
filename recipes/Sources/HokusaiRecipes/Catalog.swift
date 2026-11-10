@@ -30,6 +30,12 @@ func text(_ name: String, _ label: String, _ def: String, help: String? = nil) -
     ParamSpec(name: name, label: label, kind: .text, default: .string(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: false, help: help)
 }
 
+func matrix(_ name: String, _ label: String, _ def: String, columns: Int? = nil, columnsFrom: String? = nil,
+            presets: [(label: String, values: String, params: [String: ParamValue])] = [], help: String? = nil) -> ParamSpec {
+    ParamSpec(name: name, label: label, kind: .matrix, default: .string(def), min: nil, max: nil, step: nil, unit: nil, options: nil, advanced: false, help: help,
+              matrix: MatrixSpec(columns: columns, columnsFrom: columnsFrom, presets: presets.map { MatrixPreset(label: $0.label, values: $0.values, params: $0.params) }))
+}
+
 /// `.name(label: value, ...)`, leaving out arguments that equal the library default.
 func call(_ name: String, _ args: [(label: String, value: String, include: Bool)]) -> String {
     let parts = args.filter(\.include).map { $0.label.isEmpty ? $0.value : "\($0.label): \($0.value)" }

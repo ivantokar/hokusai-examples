@@ -17,14 +17,14 @@ struct InspectorView: View {
                     Text(spec.summary)
                     if let note = spec.previewNote { Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary) }
                     ForEach(spec.params.filter { !$0.advanced }, id: \.name) { p in
-                        ParamControl(spec: p, value: step.params[p.name]) { playground.setParam(step: step.id, p, to: $0) }
+                        control(p, step: step, operation: spec)
                     }
                     let advanced = spec.params.filter(\.advanced)
                     if !advanced.isEmpty {
                         DisclosureGroup("Advanced") {
                             VStack(alignment: .leading, spacing: 12) {
                                 ForEach(advanced, id: \.name) { p in
-                                    ParamControl(spec: p, value: step.params[p.name]) { playground.setParam(step: step.id, p, to: $0) }
+                                    control(p, step: step, operation: spec)
                                 }
                             }.padding(.top, 8)
                         }
@@ -55,10 +55,30 @@ struct InspectorView: View {
     }
 }
 
+extension InspectorView {
+    /// One parameter's control. A kernel's grid follows its size, so choosing a size starts a new identity grid.
+    func control(_ p: ParamSpec, step: Step, operation: OperationSpec) -> some View {
+        ParamControl(spec: p, value: step.params[p.name],
+                     sibling: { name in step.params[name] ?? operation.params.first { $0.name == name }?.default },
+                     setMany: { playground.setParams(step: step.id, $0) }) { value in
+            let followers = operation.params.filter { $0.matrix?.columnsFrom == p.name }
+            if !followers.isEmpty, case .string(let size)? = value, let side = Int(size) {
+                var values: [String: ParamValue] = [p.name: .string(size)]
+                for f in followers { values[f.name] = .string(MatrixSpec.identity(side: side)) }
+                playground.setParams(step: step.id, values)
+            } else {
+                playground.setParam(step: step.id, p, to: value)
+            }
+        }
+    }
+}
+
 /// One control, generated from the catalog's description of a parameter.
 struct ParamControl: View {
     let spec: ParamSpec
     let value: ParamValue?
+    var sibling: (String) -> ParamValue? = { _ in nil }
+    var setMany: ([String: ParamValue]) -> Void = { _ in }
     let set: (ParamValue?) -> Void
 
     private var current: ParamValue { value ?? spec.default }
@@ -83,12 +103,58 @@ struct ParamControl: View {
                 }
             case .color:
                 ColorPicker(spec.label, selection: Binding(get: { Self.color(from: current) }, set: { set(.string(Self.hex(from: $0))) }), supportsOpacity: true)
+            case .matrix:
+                matrixControl
             case .text:
                 Text(spec.label).fontWeight(.medium)
                 TextField(spec.label, text: Binding(get: { if case .string(let s) = current { s } else { "" } }, set: { set(.string($0)) }))
                     .textFieldStyle(.roundedBorder).labelsHidden()
             }
             if let help = spec.help { Text(help).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    /// The grid is square: its side is fixed, or read from the sibling parameter that chooses it.
+    private var side: Int {
+        if let columns = spec.matrix?.columns { return columns }
+        if let from = spec.matrix?.columnsFrom, case .string(let s)? = sibling(from), let n = Int(s) { return n }
+        return 3
+    }
+
+    private var cells: [Double] {
+        guard case .string(let s) = current else { return [] }
+        var numbers = s.split(whereSeparator: { $0 == " " || $0 == "," || $0 == "\n" }).compactMap { Double($0) }
+        while numbers.count < side * side { numbers.append(0) }
+        return numbers
+    }
+
+    @ViewBuilder private var matrixControl: some View {
+        HStack {
+            Text(spec.label).fontWeight(.medium)
+            Spacer()
+            if let presets = spec.matrix?.presets, !presets.isEmpty {
+                Menu("Start from…") {
+                    ForEach(presets.indices, id: \.self) { i in
+                        Button(presets[i].label) { setMany([spec.name: .string(presets[i].values)].merging(presets[i].params) { $1 }) }
+                    }
+                }.fixedSize()
+            }
+        }
+        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+            ForEach(0..<side, id: \.self) { row in
+                GridRow {
+                    ForEach(0..<side, id: \.self) { column in
+                        let index = row * side + column
+                        TextField("\(spec.label) row \(row + 1) column \(column + 1)",
+                                  value: Binding(get: { cells[index] }, set: { new in
+                                      var all = cells; all[index] = new
+                                      set(.string(all.map { $0 == $0.rounded() ? String(Int($0)) : String($0) }.joined(separator: " ")))
+                                  }), format: .number.precision(.fractionLength(0...4)))
+                            .textFieldStyle(.roundedBorder).multilineTextAlignment(.center).labelsHidden()
+                            .font(.caption.monospacedDigit())
+                    }
+                }
+            }
         }
     }
 

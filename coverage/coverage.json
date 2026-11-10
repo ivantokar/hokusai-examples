@@ -103,8 +103,9 @@
   "area": "Geometry",
   "item": "Affine",
   "api": "affine(...)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "partial",
+  "op": "affine",
+  "where": "Playground: a 2×2 matrix grid with presets, offsets, edge fill and interpolation; the output area is not exposed"
  },
  {
   "area": "Geometry",
@@ -214,15 +215,17 @@
   "area": "Advanced pixels",
   "item": "Convolution kernels",
   "api": "convolve(_:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "op": "convolve",
+  "where": "Playground: an editable 3×3, 5×5 or 7×7 weight grid with scale, offset and presets"
  },
  {
   "area": "Advanced pixels",
   "item": "Colour matrices",
   "api": "recombine(_:)",
-  "status": "planned",
-  "where": "Playground"
+  "status": "implemented",
+  "op": "recombine",
+  "where": "Playground: an editable 3×3 grid with presets (identity, sepia, greyscale, channel swap)"
  },
  {
   "area": "Advanced pixels",
