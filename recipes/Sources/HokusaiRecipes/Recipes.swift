@@ -6,6 +6,8 @@ public enum Catalog {
     public static let maximumSteps = 40
 
     public static var operations: [OperationSpec] { allOperations.map(\.spec) }
+    /// Generated sources a recipe can start from instead of an uploaded image.
+    public static var sources: [OperationSpec] { RecipeSources.catalog }
 
     public struct OutputSpec: Codable, Sendable {
         public let format: String
@@ -35,10 +37,14 @@ public enum RecipeCompiler {
 
     /// Validates a recipe and applies it, in order, to `source` using ordinary public Hokusai calls.
     /// Nothing is read or decoded until the caller runs a terminal on `pipeline`.
-    public static func compile(_ recipe: Recipe, source: Hokusai, fitting maxEdge: Int? = nil, encode: Bool = true,
+    /// A recipe with its own source (text) starts from that and ignores `source`; otherwise `source` is required.
+    public static func compile(_ recipe: Recipe, source: Hokusai?, fitting maxEdge: Int? = nil, encode: Bool = true,
                                assets: Assets? = nil, sizes: [String: PixelSize] = [:]) throws -> CompiledRecipe {
         try validate(recipe)
-        var pipeline = source
+        var pipeline: Hokusai
+        if let own = recipe.source { pipeline = try RecipeSources.make(own) }
+        else if let source { pipeline = source }
+        else { throw RecipeError.invalidParameter(operation: "recipe", name: "source", reason: "the recipe needs an image or a generated source") }
         for step in recipe.steps where step.enabled {
             let def = operations[step.op]!
             let params = try Params(operation: step.op, specs: def.spec.params, values: step.params)
@@ -58,6 +64,7 @@ public enum RecipeCompiler {
     public static func validate(_ recipe: Recipe) throws {
         guard recipe.version == Recipe.currentVersion else { throw RecipeError.unsupportedVersion(recipe.version) }
         guard recipe.steps.count <= Catalog.maximumSteps else { throw RecipeError.tooManySteps(Catalog.maximumSteps) }
+        if let source = recipe.source { try RecipeSources.validate(source) }
         for step in recipe.steps {
             guard let def = operations[step.op] else { throw RecipeError.unknownOperation(step.op) }
             _ = try Params(operation: step.op, specs: def.spec.params, values: step.params)
@@ -115,26 +122,29 @@ public enum SwiftCodeGenerator {
     /// Readable Swift that reproduces the final export. The source path is a placeholder: the demo's
     /// uploaded id is not a file on your machine.
     public static func swift(_ recipe: Recipe, target: Target = .core, sizes: [String: PixelSize] = [:]) throws -> String {
-        let lines = try chain(recipe, sizes: sizes)
+        let generated = try recipe.source.map(RecipeSources.swift)
+        let lines = (generated?.chain ?? []) + (try chain(recipe, sizes: sizes))
         let ext = outputs[recipe.output.format]!.fileExtension
         func joined(_ lines: [String], _ spaces: Int) -> String { lines.map { String(repeating: " ", count: spaces) + $0 }.joined(separator: "\n") }
         let bound = lines.contains { $0.hasPrefix(bindMarker) }
         switch target {
         case .core:
-            let source = "try Hokusai(url: URL(fileURLWithPath: \"input.jpg\"))   // your source image"
+            let source = generated?.expression ?? "try Hokusai(url: URL(fileURLWithPath: \"input.jpg\"))   // your source image"
             let a = assemble(source: source, lines: lines, indent: 4)
             return """
             import Foundation
             import Hokusai
 
-            \(a.bindings)let output = try await \(bound ? a.source : source)
+            \(a.bindings)let output = try await \(bound ? a.source : (source.hasPrefix("try ") ? String(source.dropFirst(4)) : source))
             \(joined(a.tail, 4))
                 .write(to: URL(fileURLWithPath: "result.\(ext)"))
 
             print("Wrote \\(output.width) × \\(output.height), \\(output.byteCount) bytes")
             """.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         case .vapor:
-            let source = "try await req.hokusaiImage(maximumSize: 25 * 1024 * 1024)"
+            // A generated source needs no upload: the route is a GET that builds the image from text.
+            let source = generated.map { "try await " + $0.expression.dropFirst("try ".count) } ?? "try await req.hokusaiImage(maximumSize: 25 * 1024 * 1024)"
+            let route = generated == nil ? "// POST /process  --data-binary @input.jpg\napp.grouped(HokusaiErrorMiddleware()).post(\"process\")" : "// GET /banner\napp.grouped(HokusaiErrorMiddleware()).get(\"banner\")"
             let a = assemble(source: source, lines: lines, indent: 8)
             let body = bound
                 ? "    " + a.bindings.replacingOccurrences(of: "\n", with: "\n    ").trimmingCharacters(in: .whitespaces) + "\n    return try await \(a.source)\n\(joined(a.tail, 8))"
@@ -144,27 +154,26 @@ public enum SwiftCodeGenerator {
             import HokusaiVapor
             import Vapor
 
-            // POST /process  --data-binary @input.jpg
-            app.grouped(HokusaiErrorMiddleware()).post("process") { req async throws -> Response in
+            \(route) { req async throws -> Response in
             \(body)
                     .response()
             }
             """
         case .hummingbird:
-            let source = "upload"
+            let source = generated.map { "try await " + $0.expression.dropFirst("try ".count) } ?? "upload"
+            let route = generated == nil ? "// POST /process  --data-binary @input.jpg\nrouter.post(\"process\") { request, _ -> Response in" : "// GET /banner\nrouter.get(\"banner\") { _, _ -> Response in"
+            let upload = generated == nil ? "    let upload = try await request.hokusaiImage(maximumSize: 25 * 1024 * 1024)\n" : ""
             let a = assemble(source: source, lines: lines, indent: 8)
             let body = bound
                 ? "    " + a.bindings.replacingOccurrences(of: "\n", with: "\n    ").trimmingCharacters(in: .whitespaces) + "\n    return try await \(a.source)\n\(joined(a.tail, 8))"
-                : "    return try await upload\n\(joined(lines, 8))"
+                : "    return \(generated == nil ? "try await upload" : source)\n\(joined(lines, 8))"
             return """
             import Hokusai
             import HokusaiHummingbird
             import Hummingbird
 
-            // POST /process  --data-binary @input.jpg
-            router.post("process") { request, _ -> Response in
-                let upload = try await request.hokusaiImage(maximumSize: 25 * 1024 * 1024)
-            \(body)
+            \(route)
+            \(upload)\(body)
                     .response()
             }
             """

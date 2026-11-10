@@ -3,7 +3,8 @@ import Hokusai
 import HokusaiRecipes
 
 public struct RenderRequest: Codable, Sendable {
-    public var uploadId: String
+    /// Absent when the recipe makes its own pixels (a text source).
+    public var uploadId: String?
     public var recipe: Recipe
     /// When set, the *result* is reduced to fit this many pixels on its longest side, for display.
     /// The recipe is evaluated on the full original either way, so geometry steps stay exact.
@@ -20,7 +21,7 @@ public struct RenderRequest: Codable, Sendable {
     /// Names of extra pictures a recipe may use, mapped to upload ids: `["second": "<upload id>"]`.
     public var assets: [String: String]?
 
-    public init(uploadId: String, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil, viewable: Bool? = nil, page: Int? = nil, assets: [String: String]? = nil) {
+    public init(uploadId: String? = nil, recipe: Recipe, previewMaxEdge: Int? = nil, stopBefore: String? = nil, viewable: Bool? = nil, page: Int? = nil, assets: [String: String]? = nil) {
         self.uploadId = uploadId
         self.recipe = recipe
         self.previewMaxEdge = previewMaxEdge
@@ -97,14 +98,21 @@ public struct RenderService: Sendable {
         }
     }
 
+    /// The pipeline a recipe starts from: the uploaded image, or `nil` when the recipe generates its own pixels
+    /// (the compiler then builds the source itself). Decoding is lazy: invalid bytes are reported when a terminal runs.
+    public func input(uploadId: String?, recipe: Recipe, page: Int?) async throws -> Hokusai? {
+        if recipe.source != nil { return nil }
+        guard let uploadId else { throw RecipeError.invalidParameter(operation: "recipe", name: "source", reason: "send an uploadId, or give the recipe a generated source") }
+        guard let bytes = await uploads.get(uploadId) else { throw RenderError.unknownUpload }
+        var options = InputOptions()
+        options.page = page
+        return try Hokusai(data: bytes, options: options)
+    }
+
     public func render(_ request: RenderRequest) async throws -> RenderResult {
         if let edge = request.previewMaxEdge, !(16...4096).contains(edge) { throw RenderError.invalidPreviewSize }
-        guard let bytes = await uploads.get(request.uploadId) else { throw RenderError.unknownUpload }
         let started = ContinuousClock.now
-        // Decoding is lazy: invalid bytes are reported when the terminal runs, as a HokusaiError.
-        var inputOptions = InputOptions()
-        inputOptions.page = request.page
-        let source = try Hokusai(data: bytes, options: inputOptions)
+        let source = try await input(uploadId: request.uploadId, recipe: request.recipe, page: request.page)
         var recipe = request.recipe
         if let stop = request.stopBefore {
             guard let index = recipe.steps.firstIndex(where: { $0.id == stop }) else { throw RenderError.unknownStep }

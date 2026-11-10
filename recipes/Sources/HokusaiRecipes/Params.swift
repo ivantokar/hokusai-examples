@@ -32,8 +32,17 @@ struct Params {
             guard Hex.parse(s) != nil else { throw bad("expected a colour such as #1a2b3c or #1a2b3c80") }
         case (.text, .string(let s)):
             guard s.utf8.count <= 2_000 else { throw bad("is limited to 2000 bytes") }
+        case (.matrix, .string(let s)):
+            guard s.utf8.count <= 20_000 else { throw bad("is limited to 20000 bytes") }
+            guard Params.parseNumbers(s) != nil else { throw bad("expected numbers separated by spaces") }
         default: throw bad("has the wrong type")
         }
+    }
+
+    static func parseNumbers(_ text: String) -> [Double]? {
+        let parts = text.split(whereSeparator: { $0 == " " || $0 == "," || $0 == "\n" || $0 == "\t" })
+        let numbers = parts.compactMap { Double($0) }
+        return numbers.count == parts.count && numbers.allSatisfy(\.isFinite) ? numbers : nil
     }
 
     private func value(_ name: String) -> ParamValue {
@@ -44,6 +53,8 @@ struct Params {
     func int(_ name: String) -> Int { Int(double(name)) }
     func bool(_ name: String) -> Bool { if case .bool(let b) = value(name) { b } else { false } }
     func string(_ name: String) -> String { if case .string(let s) = value(name) { s } else { "" } }
+    /// The numbers of a `matrix` parameter, row by row.
+    func numbers(_ name: String) -> [Double] { Params.parseNumbers(string(name)) ?? [] }
     func color(_ name: String) -> Color { Hex.parse(string(name)) ?? .transparent }
     func isDefault(_ name: String) -> Bool { value(name) == specs[name]!.default }
 }

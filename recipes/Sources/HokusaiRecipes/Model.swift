@@ -24,12 +24,34 @@ public enum ParamValue: Codable, Hashable, Sendable {
     }
 }
 
-public enum ParamKind: String, Codable, Sendable { case number, integer, boolean, choice, color, text }
+public enum ParamKind: String, Codable, Sendable { case number, integer, boolean, choice, color, text, matrix }
 
 public struct Choice: Codable, Hashable, Sendable {
     public let value: String
     public let label: String
     public init(value: String, label: String) { self.value = value; self.label = label }
+}
+
+/// A grid of numbers, stored in a recipe as one string of space-separated values, row by row.
+public struct MatrixSpec: Codable, Sendable {
+    /// Columns when fixed, for example 3 for a colour matrix.
+    public var columns: Int?
+    /// The name of a sibling parameter whose value is the side of a square grid, for a kernel whose size is chosen.
+    public var columnsFrom: String?
+    /// Named starting points. Picking one sets the grid and any sibling parameters it names.
+    public var presets: [MatrixPreset]
+
+    /// The identity grid of a side, in the string form a recipe stores.
+    public static func identity(side: Int) -> String {
+        (0..<side * side).map { $0 % (side + 1) == 0 ? "1" : "0" }.joined(separator: " ")
+    }
+}
+
+public struct MatrixPreset: Codable, Sendable {
+    public let label: String
+    public let values: String
+    /// Sibling parameters the preset also sets (the kernel's size, scale, offset).
+    public let params: [String: ParamValue]
 }
 
 /// Describes one control: its type, unit, default and range. The Web UI is generated from this.
@@ -46,6 +68,8 @@ public struct ParamSpec: Codable, Sendable {
     /// Shown under "Advanced" instead of next to the common controls.
     public var advanced: Bool
     public var help: String?
+    /// For `matrix` parameters: the grid's shape and presets.
+    public var matrix: MatrixSpec? = nil
 }
 
 public enum OperationGroup: String, Codable, CaseIterable, Sendable {
@@ -108,6 +132,21 @@ public struct Step: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// Where a recipe's pixels come from when they are not an uploaded image: a generated source, such as text.
+public struct RecipeSource: Codable, Hashable, Sendable {
+    /// A `SourceSpec.id` from the catalog, for example `text`.
+    public var kind: String
+    public var params: [String: ParamValue]
+    public init(kind: String, params: [String: ParamValue] = [:]) { self.kind = kind; self.params = params }
+
+    private enum CodingKeys: String, CodingKey { case kind, params }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        params = try c.decodeIfPresent([String: ParamValue].self, forKey: .params) ?? [:]
+    }
+}
+
 /// An application-owned, versioned description of a pipeline. It compiles to ordinary public
 /// Hokusai calls; Hokusai's own plan is never serialised.
 public struct Recipe: Codable, Hashable, Sendable {
@@ -115,13 +154,16 @@ public struct Recipe: Codable, Hashable, Sendable {
 
     public var version: Int
     public var name: String?
+    /// A generated source. Absent for the usual case: the pipeline starts from an uploaded image.
+    public var source: RecipeSource?
     /// Ordered. Repeating an operation is allowed and the order is kept.
     public var steps: [Step]
     public var output: OutputSettings
 
-    public init(version: Int = Recipe.currentVersion, name: String? = nil, steps: [Step] = [], output: OutputSettings = .init()) {
+    public init(version: Int = Recipe.currentVersion, name: String? = nil, source: RecipeSource? = nil, steps: [Step] = [], output: OutputSettings = .init()) {
         self.version = version
         self.name = name
+        self.source = source
         self.steps = steps
         self.output = output
     }
@@ -130,6 +172,7 @@ public struct Recipe: Codable, Hashable, Sendable {
 public enum RecipeError: Error, Equatable, CustomStringConvertible {
     case unsupportedVersion(Int)
     case unknownOperation(String)
+    case unknownSource(String)
     case unknownParameter(operation: String, name: String)
     case invalidParameter(operation: String, name: String, reason: String)
     case unknownFormat(String)
@@ -139,6 +182,7 @@ public enum RecipeError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .unsupportedVersion(let v): "recipe version \(v) is not supported (current is \(Recipe.currentVersion))"
         case .unknownOperation(let op): "unknown operation '\(op)'"
+        case .unknownSource(let kind): "unknown source '\(kind)'"
         case .unknownParameter(let op, let name): "operation '\(op)' has no parameter '\(name)'"
         case .invalidParameter(let op, let name, let reason): "\(op) → \(name): \(reason)"
         case .unknownFormat(let f): "unknown output format '\(f)'"

@@ -469,3 +469,175 @@ import PDFKit
         #expect(code.contains("let image = ") && code.contains("let image2 = image") && code.contains("image2.grayscale()"))
     }
 }
+
+@Suite struct MatrixOperationTests {
+    private func render(_ steps: [Step], format: String = "png") async throws -> RenderResult {
+        let store = UploadStore()
+        let id = try await store.put(try fixture("scene.png"))
+        return try await RenderService(uploads: store, fixtures: fixtures).render(RenderRequest(uploadId: id, recipe: Recipe(steps: steps, output: .init(format: format))))
+    }
+    private func pixels(_ png: Data) async throws -> Data { try await Hokusai(data: png).raw(.rgb8).data }
+
+    @Test func theIdentityKernelAndMatrixChangeNothingAndTheRestDo() async throws {
+        let plain = try await pixels(try await render([]).data)
+        #expect(try await pixels(try await render([Step(op: "convolve", params: ["kernel": .string("0 0 0 0 1 0 0 0 0")])]).data) == plain)
+        #expect(try await pixels(try await render([Step(op: "recombine", params: ["matrix": .string("1 0 0 0 1 0 0 0 1")])]).data) == plain)
+        #expect(try await pixels(try await render([Step(op: "convolve")]).data) != plain)       // the default is a sharpen
+        #expect(try await pixels(try await render([Step(op: "recombine")]).data) != plain)      // the default is sepia
+    }
+
+    @Test func aFiveByFiveKernelNeedsTwentyFiveWeights() async throws {
+        let blur = Step(op: "convolve", params: ["size": .string("5"), "kernel": .string("1 4 6 4 1 4 16 24 16 4 6 24 36 24 6 4 16 24 16 4 1 4 6 4 1"), "scale": .number(256)])
+        let blurred = try await render([blur])
+        #expect(try await pixels(blurred.data) != (try await pixels(try await render([]).data)))
+        await #expect(throws: RecipeError.self) { _ = try await render([Step(op: "convolve", params: ["size": .string("5")])]) }
+    }
+
+    @Test func wrongShapesAndZeroScaleAreRefusedWithTheirName() async throws {
+        for (step, name) in [
+            (Step(op: "convolve", params: ["kernel": .string("1 2 3")]), "kernel"),
+            (Step(op: "convolve", params: ["scale": .number(0)]), "scale"),
+            (Step(op: "convolve", params: ["kernel": .string("1 x 3 4 5 6 7 8 9")]), "kernel"),
+            (Step(op: "recombine", params: ["matrix": .string("1 0 0 1")]), "matrix"),
+            (Step(op: "affine", params: ["matrix": .string("1 2 2 4")]), "matrix"),   // a·d − b·c = 0
+            (Step(op: "affine", params: ["matrix": .string("1 0 0")]), "matrix"),
+        ] {
+            do { _ = try await render([step]); Issue.record("\(step.op) \(name) was accepted") }
+            catch let RecipeError.invalidParameter(_, parameter, _) { #expect(parameter == name) }
+        }
+    }
+
+    @Test func anAffineShearGrowsTheCanvasAndRotationKeepsTheWholeImage() async throws {
+        let shear = try await render([Step(op: "affine", params: ["matrix": .string("1 0.4 0 1")])])
+        #expect(shear.width > 1600 && shear.height == 1000)         // x′ = x + 0.4·y
+        let scaled = try await render([Step(op: "affine", params: ["matrix": .string("1.5 0 0 1.5")])])
+        #expect((scaled.width, scaled.height) == (2400, 1500))
+        let rotated = try await render([Step(op: "affine", params: ["matrix": .string("0.9659 -0.2588 0.2588 0.9659")])])
+        #expect(rotated.width > 1600 && rotated.height > 1000)
+    }
+
+    @Test func theGeneratedSwiftNamesTheLibraryCalls() throws {
+        func code(_ step: Step) throws -> String { try SwiftCodeGenerator.swift(Recipe(steps: [step], output: .init(format: "png"))) }
+        let sharpen = try code(Step(op: "convolve"))
+        #expect(sharpen.contains(".convolve(try ConvolutionKernel(width: 3, height: 3, values: [0, -1, 0, -1, 5, -1, 0, -1, 0]))"))
+        let emboss = try code(Step(op: "convolve", params: ["kernel": .string("-2 -1 0 -1 1 1 0 1 2"), "offset": .number(128)]))
+        #expect(emboss.contains("offset: 128"))
+        #expect(try code(Step(op: "recombine")).contains(".recombine(.sepia)"))
+        #expect(try code(Step(op: "recombine", params: ["matrix": .string("1.2 0 0 0 1 0 0 0 0.8")])).contains("ColorMatrix([1.2, 0, 0, 0, 1, 0, 0, 0, 0.8])"))
+        let affine = try code(Step(op: "affine", params: ["matrix": .string("1 0.4 0 1"), "interpolation": .string("bicubic"), "edges": .string("copy")]))
+        #expect(affine.contains(".affine(AffineMatrix(a: 1, b: 0.4, c: 0, d: 1), edges: .copy, interpolation: .bicubic)"))
+    }
+
+    @Test func theCatalogDescribesTheGridsAndTheirPresets() throws {
+        let catalog = Catalog.operations
+        for (id, name) in [("convolve", "kernel"), ("recombine", "matrix"), ("affine", "matrix")] {
+            let spec = try #require(catalog.first { $0.id == id }?.params.first { $0.name == name })
+            #expect(spec.kind == .matrix)
+            let matrix = try #require(spec.matrix)
+            #expect(!matrix.presets.isEmpty)
+            #expect(matrix.columns != nil || matrix.columnsFrom != nil)
+            // Every preset must itself be a valid value, with the right number of numbers for its grid.
+            for preset in matrix.presets {
+                let count = Params.parseNumbers(preset.values)?.count
+                let side = matrix.columns ?? { if case .string(let s)? = preset.params[matrix.columnsFrom ?? ""] { Int(s) } else { nil } }()
+                if matrix.columnsFrom != nil { #expect(count == (side ?? 0) * (side ?? 0), "\(id): \(preset.label)") }
+                else { #expect(count == (id == "recombine" ? 9 : 4), "\(id): \(preset.label)") }
+            }
+        }
+    }
+
+    @Test func everyPresetRendersWithoutError() async throws {
+        for op in ["convolve", "recombine", "affine"] {
+            let spec = try #require(Catalog.operations.first { $0.id == op }?.params.first { $0.name == (op == "convolve" ? "kernel" : "matrix") })
+            for preset in try #require(spec.matrix).presets {
+                var params: [String: ParamValue] = [spec.name: .string(preset.values)]
+                params.merge(preset.params) { $1 }
+                let result = try await render([Step(op: op, params: params)])
+                #expect(result.width > 0, "\(op): \(preset.label)")
+            }
+        }
+    }
+}
+
+@Suite struct TextSourceTests {
+    private func service() -> RenderService { RenderService(uploads: UploadStore(), fixtures: fixtures) }
+    private func recipe(_ params: [String: ParamValue] = [:], steps: [Step] = [], format: String = "png") -> Recipe {
+        Recipe(source: RecipeSource(kind: "text", params: params), steps: steps, output: .init(format: format))
+    }
+    private func hasAlpha(_ data: Data) async throws -> Bool { try await Hokusai(data: data).metadata().pixel.hasAlpha }
+
+    @Test func aTextSourceRendersWithoutAnUpload() async throws {
+        let result = try await service().render(RenderRequest(recipe: recipe()))
+        #expect(result.width > 200 && result.height > 100)
+        #expect(result.data.prefix(4) == Data([0x89, 0x50, 0x4e, 0x47]))
+    }
+
+    @Test func sizeFollowsTheTextPaddingAndWrapping() async throws {
+        func size(_ params: [String: ParamValue]) async throws -> (Int, Int) { let r = try await service().render(RenderRequest(recipe: recipe(params))); return (r.width, r.height) }
+        let plain = try await size(["padding": .number(0)]), padded = try await size(["padding": .number(50)])
+        #expect(padded.0 == plain.0 + 100 && padded.1 == plain.1 + 100)
+        let long: [String: ParamValue] = ["content": .string("one two three four five six seven eight nine ten"), "padding": .number(0), "fontSize": .number(60)]
+        var wrapped = long; wrapped["wrapWidth"] = .number(300)
+        let flat = try await size(long), narrow = try await size(wrapped)
+        #expect(narrow.0 <= 300 && narrow.1 > flat.1)               // wrapped to 300 px, so taller and narrower
+        #expect(try await size(["content": .string("a\\nb"), "padding": .number(0)]).1 > (try await size(["content": .string("a"), "padding": .number(0)])).1)   // \n is a new line
+    }
+
+    @Test func aTransparentBackgroundKeepsAlphaAndAnOpaqueOneDoesNot() async throws {
+        let clear = try await service().render(RenderRequest(recipe: recipe(["background": .string("#00000000")])))
+        let solid = try await service().render(RenderRequest(recipe: recipe(["background": .string("#ffffff")])))
+        #expect(try await hasAlpha(clear.data))
+        #expect(!(try await hasAlpha(solid.data)))
+    }
+
+    @Test func stepsRunAfterTheSource() async throws {
+        let base = try await service().render(RenderRequest(recipe: recipe()))
+        let small = try await service().render(RenderRequest(recipe: recipe(steps: [Step(op: "resize", params: ["width": .number(300), "fit": .string("inside")])])))
+        #expect(small.width == 300 && small.width < base.width)
+    }
+
+    @Test func aRecipeWithNeitherASourceNorAnUploadIsRefused() async throws {
+        await #expect(throws: RecipeError.self) { _ = try await service().render(RenderRequest(recipe: Recipe(output: .init(format: "png")))) }
+        await #expect(throws: RenderError.self) { _ = try await service().render(RenderRequest(uploadId: "gone", recipe: Recipe(output: .init(format: "png")))) }
+        for bad in [RecipeSource(kind: "nope"), RecipeSource(kind: "text", params: ["content": .string("")]), RecipeSource(kind: "text", params: ["fontSize": .number(2)]), RecipeSource(kind: "text", params: ["colour": .string("red")])] {
+            await #expect(throws: (any Error).self) { _ = try await service().render(RenderRequest(recipe: Recipe(source: bad, output: .init(format: "png")))) }
+        }
+    }
+
+    @Test func theSourceSurvivesJSONAndAnOldRecipeStillDecodes() throws {
+        let original = recipe(["content": .string("Hi")])
+        let again = try JSONDecoder().decode(Recipe.self, from: try JSONEncoder().encode(original))
+        #expect(again == original && again.source?.kind == "text")
+        let old = try JSONDecoder().decode(Recipe.self, from: Data(#"{"version":1,"steps":[],"output":{"format":"png"}}"#.utf8))
+        #expect(old.source == nil)
+        let minimal = try JSONDecoder().decode(Recipe.self, from: Data(#"{"version":1,"source":{"kind":"text"},"steps":[],"output":{"format":"png"}}"#.utf8))
+        #expect(minimal.source?.params.isEmpty == true)
+    }
+
+    @Test func generatedSwiftStartsFromTheTextNotAFile() throws {
+        let r = recipe(["content": .string("Hi \"there\""), "wrapWidth": .number(600), "alignment": .string("left")], steps: [Step(op: "resize", params: ["width": .number(300)])])
+        let core = try SwiftCodeGenerator.swift(r)
+        #expect(core.contains(#"Hokusai.text("Hi \"there\"", layout: .width(600), style: TextStyle(font: "sans bold", fontSize: 120"#))
+        #expect(core.contains(".extend(top: 64") && core.contains(".flatten(background:") && core.contains(".resize(width: 300"))
+        #expect(!core.contains("input.jpg"))
+        // Every generated line must have balanced parentheses (the snippet check compiles it, this catches it sooner).
+        for line in core.split(separator: "\n") { #expect(line.filter { $0 == "(" }.count == line.filter { $0 == ")" }.count, "unbalanced: \(line)") }
+        #expect(core.contains("mode: .background(.sRGB8(red: 255, green: 253, blue: 247)))\n"))
+        let vapor = try SwiftCodeGenerator.swift(r, target: .vapor)
+        #expect(vapor.contains(#".get("banner")"#) && vapor.contains("try await Hokusai.text(") && !vapor.contains("hokusaiImage"))
+        let hb = try SwiftCodeGenerator.swift(r, target: .hummingbird)
+        #expect(hb.contains(#"router.get("banner")"#) && hb.contains("try await Hokusai.text(") && !hb.contains("hokusaiImage"))
+    }
+
+    @Test func aMaskTakenFromTheTextNamesItsPipelineToo() async throws {
+        let r = recipe(steps: [Step(op: "mask")])
+        let code = try SwiftCodeGenerator.swift(r)
+        #expect(code.contains("let image = try await Hokusai.text(") || code.contains("let image = try Hokusai.text("))
+        _ = try await service().render(RenderRequest(recipe: r))
+    }
+
+    @Test func theCatalogListsTheSource() throws {
+        let text = try #require(Catalog.sources.first { $0.id == "text" })
+        #expect(text.params.contains { $0.name == "content" } && text.params.contains { $0.name == "background" })
+    }
+}

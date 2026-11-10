@@ -89,6 +89,10 @@ select, input[type=text], input[type=search], input[type=number], textarea { bac
 .field input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .field input[type=number] { width: 84px; }
 .field select, .field input[type=text], .field textarea { width: 100%; }
+.matrix-box { display: grid; gap: 6px; }
+.matrix { display: grid; gap: 4px; }
+.matrix input[type=number] { width: 100%; min-width: 0; box-sizing: border-box; padding: 5px 2px; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.matrix input.diag { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
 .field .help { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .note { border-left: 3px solid var(--warn); padding: 4px 8px; background: var(--bg); font-size: 12px; margin: 0 0 12px; }
 details.adv { margin-top: 6px; }
@@ -180,3 +184,6 @@ details.adv summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; 
 .page-thumbs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .raw-thumb { max-width: 140px; max-height: 110px; border: 1px solid var(--line); background: #fff; }
 .lab-out table th { width: 40%; }
+
+.empty-state .or { margin: 12px 0 8px; color: var(--muted); }
+.step.source .num { color: var(--accent); }

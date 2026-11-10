@@ -74,6 +74,23 @@ private func fixture(_ name: String) throws -> Data { try Data(contentsOf: fixtu
         #expect(p.recipe.steps[0].params["sigma"] == nil)
     }
 
+    @Test func aKernelAndItsSizeChangeTogetherAsOneUndoEntry() async throws {
+        let p = try await make()
+        p.addStep("convolve")
+        let id = p.recipe.steps[0].id
+        let five = MatrixSpec.identity(side: 5)
+        #expect(five.split(separator: " ").count == 25)
+        p.setParams(step: id, ["size": .string("5"), "kernel": .string(five)])
+        #expect(p.recipe.steps[0].params["size"] == .string("5") && p.recipe.steps[0].params["kernel"] == .string(five))
+        await p.settle()
+        guard case .ready = p.status else { Issue.record("25 weights for a 5×5 grid should render, got \(p.status)"); return }
+        p.undo()
+        #expect(p.recipe.steps[0].params.isEmpty)                      // both back to their defaults in one step
+        // A value equal to the default removes the override instead of storing it.
+        p.setParams(step: id, ["size": .string("3")])
+        #expect(p.recipe.steps[0].params["size"] == nil)
+    }
+
     @Test func aFailedEditKeepsTheLastGoodImageAndSaysSo() async throws {
         let p = try await make()
         let good = p.lastGood

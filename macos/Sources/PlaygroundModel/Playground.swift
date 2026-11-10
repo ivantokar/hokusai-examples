@@ -139,6 +139,19 @@ public final class Playground {
     /// Sets one parameter. Edits to the same parameter that follow each other closely (a slider drag)
     /// share a single undo entry.
     private var lastParamEdit: (key: String, at: ContinuousClock.Instant)?
+    /// Sets several parameters of one step as a single undo entry, for controls that depend on each other
+    /// (a kernel's grid and its size). A value equal to the default removes the override.
+    public func setParams(step id: String, _ values: [String: ParamValue]) {
+        guard let i = recipe.steps.firstIndex(where: { $0.id == id }),
+              let spec = Catalog.operations.first(where: { $0.id == recipe.steps[i].op }) else { return }
+        history.append(recipe); future.removeAll(); lastParamEdit = nil
+        for (name, value) in values {
+            guard let p = spec.params.first(where: { $0.name == name }) else { continue }
+            if value != p.default { recipe.steps[i].params[name] = value } else { recipe.steps[i].params[name] = nil }
+        }
+        afterEdit()
+    }
+
     public func setParam(step id: String, _ spec: ParamSpec, to value: ParamValue?) {
         let key = id + "/" + spec.name
         let now = ContinuousClock.now

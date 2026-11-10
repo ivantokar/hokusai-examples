@@ -5,7 +5,7 @@ The baseline is Hokusai 2.2.2 (see `recipes/Package.swift`). Future operators tr
 
 Status: **implemented** works in the demo today; **partial** works with the limits named; **planned** is demo work that is not built yet (it does not mean the library lacks it).
 
-51 implemented, 5 partial, 4 planned, 60 in total.
+54 implemented, 6 partial, 0 planned, 60 in total.
 
 
 ## Sources
@@ -15,7 +15,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Encoded data | `Hokusai(data:)` | implemented | Web: upload, samples. |
 | File URLs | `Hokusai(url:)` | partial | Generated Swift shows it with an input.jpg placeholder; macOS app will open files. The Web demo never reads server paths. |
 | Streamed / spooled input | `Hokusai(spooling:)` | partial | Minimal route in both servers uses it; Runtime Lab shows the size limit and a streamed response. |
-| Generated text as a source | `Hokusai.text(_:layout:style:)` | planned | Composition view. |
+| Generated text as a source | `Hokusai.text(_:layout:style:)` | implemented | Web playground: Start from text (or the Text card recipe): content, font, size, colour, alignment, wrapping, background and padding; no upload. The macOS app does not offer it yet. |
 | Raw pixels | `Hokusai(raw:)` | implemented | Inspect > Raw pixels (raw input). |
 
 ## Geometry
@@ -30,7 +30,7 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 | Crop (extract) | `extract(x:y:width:height:)` | implemented | Playground: on-canvas rectangle with handles, keyboard and numeric entry, fixed aspect ratios; edited on the image entering the step. |
 | Smart crop | `smartCrop(width:height:strategy:)` | implemented | Playground. |
 | Extend (canvas) | `extend(...)` | implemented | Playground: padding per side, colour, edge copy, tiling or mirroring. |
-| Affine | `affine(...)` | planned | Playground. |
+| Affine | `affine(...)` | partial | Playground: a 2×2 matrix grid with presets, offsets, edge fill and interpolation; the output area is not exposed. |
 | Trim | `trim(...)` | implemented | Playground. |
 
 ## Effects
@@ -54,8 +54,8 @@ Status: **implemented** works in the demo today; **partial** works with the limi
 
 | Capability | Public API | Status | Where |
 | --- | --- | --- | --- |
-| Convolution kernels | `convolve(_:)` | planned | Playground. |
-| Colour matrices | `recombine(_:)` | planned | Playground. |
+| Convolution kernels | `convolve(_:)` | implemented | Playground: an editable 3×3, 5×5 or 7×7 weight grid with scale, offset and presets. |
+| Colour matrices | `recombine(_:)` | implemented | Playground: an editable 3×3 grid with presets (identity, sepia, greyscale, channel swap). |
 | Dilate | `dilate(radius:)` | implemented | Playground. |
 | Erode | `erode(radius:)` | implemented | Playground. |
 | Edge detectors | `edges(_:)` | implemented | Playground: Sobel, Scharr, Prewitt, Canny. |

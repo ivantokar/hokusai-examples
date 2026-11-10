@@ -19,8 +19,22 @@ export async function apiError(res) {
   return Object.assign(new Error(message), { code, status: res.status });
 }
 
-/** One control, generated from the catalog's description of a parameter. `onChange` gets the new value. */
-export function field(p, params, onChange) {
+/** The identity grid of a given side, as the space-separated string a recipe stores. */
+export const identityMatrix = (side) => Array.from({ length: side * side }, (_, i) => (i % (side + 1) === 0 ? 1 : 0)).join(" ");
+
+/** The side of a matrix parameter's square grid: fixed, or read from the sibling parameter that chooses it. */
+export function matrixSide(p, params, siblings = []) {
+  if (p.matrix.columns) return p.matrix.columns;
+  const from = siblings.find((q) => q.name === p.matrix.columnsFrom);
+  return Number(params[p.matrix.columnsFrom] ?? from?.default) || 3;
+}
+
+/**
+ * One control, generated from the catalog's description of a parameter. `onChange` gets the new value.
+ * `context` lets a control that depends on its siblings (a kernel and its size) read them and set several at once:
+ * `{ siblings: [ParamSpec], setMany(values), }`.
+ */
+export function field(p, params, onChange, context = {}) {
   const value = p.name in params ? params[p.name] : p.default;
   const id = "f-" + uid();
   const wrap = el("div", { className: "field" });
@@ -48,6 +62,8 @@ export function field(p, params, onChange) {
     const emit = () => onChange(picker.value + (Number(alpha.value) === 255 ? "" : Number(alpha.value).toString(16).padStart(2, "0")));
     picker.oninput = emit; alpha.oninput = emit;
     wrap.append(el("div", { className: "row" }, picker, alpha));
+  } else if (p.kind === "matrix") {
+    wrap.append(matrixControl(p, String(value), params, onChange, context, id));
   } else {
     const input = el("input", { type: "text", id, value, maxLength: 2000 }); input.oninput = () => onChange(input.value); wrap.append(input);
   }
@@ -55,3 +71,31 @@ export function field(p, params, onChange) {
   return wrap;
 }
 
+
+/** A square grid of number inputs, with named starting points. The recipe stores it as one string. */
+function matrixControl(p, value, params, onChange, context, id) {
+  const side = matrixSide(p, params, context.siblings);
+  const cells = value.split(/[\s,]+/).filter(Boolean);
+  while (cells.length < side * side) cells.push("0");
+  const inputs = [];
+  const grid = el("div", { className: "matrix", id, role: "group", "aria-label": p.label });
+  grid.style.gridTemplateColumns = `repeat(${side}, minmax(0, 1fr))`;
+  for (let i = 0; i < side * side; i++) {
+    const cell = el("input", { type: "number", step: "any", value: cells[i], className: i % (side + 1) === 0 ? "diag" : "" });
+    cell.setAttribute("aria-label", `${p.label}, row ${Math.floor(i / side) + 1}, column ${(i % side) + 1}`);
+    cell.oninput = () => {
+      const numbers = inputs.map((c) => c.value.trim());
+      if (numbers.every((n) => n !== "" && Number.isFinite(Number(n)))) onChange(numbers.map(Number).join(" "));
+    };
+    inputs.push(cell); grid.append(cell);
+  }
+  const box = el("div", { className: "matrix-box" });
+  const presets = p.matrix.presets ?? [];
+  if (presets.length && context.setMany) {
+    const pick = el("select", { "aria-label": `${p.label}: start from` }, el("option", { value: "", textContent: "Start from…" }), ...presets.map((x, i) => el("option", { value: String(i), textContent: x.label })));
+    pick.onchange = () => { const x = presets[Number(pick.value)]; if (x) context.setMany({ [p.name]: x.values, ...x.params }); };
+    box.append(pick);
+  }
+  box.append(grid);
+  return box;
+}

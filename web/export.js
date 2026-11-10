@@ -20,10 +20,10 @@ export function initExport(container, ctx) {
     const out = el("div", { className: "lab-out", role: "status", "aria-live": "polite" });
     const run = el("button", { type: "button", className: "btn", textContent: "Compare encoders" });
     run.onclick = async () => {
-      if (!state.upload) { out.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
+      if (!ctx.hasInput()) { out.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first." })); return; }
       run.disabled = true; out.replaceChildren(el("p", { className: "muted", textContent: "Encoding with every encoder…" }));
       try {
-        const res = await fetch("/api/compare", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: ctx.recipe(), page: state.page || null, assets: state.assets }) });
+        const res = await fetch("/api/compare", { method: "POST", body: JSON.stringify({ uploadId: ctx.uploadId(), recipe: ctx.recipe(), page: state.page || null, assets: state.assets }) });
         if (!res.ok) throw await apiError(res);
         const { rows, scaledTo } = await res.json();
         const smallest = Math.min(...rows.filter((r) => r.ok).map((r) => r.bytes));
@@ -62,10 +62,10 @@ export function initExport(container, ctx) {
     let rev = 0, timer = null, url = null;
     const pdfRecipe = () => { const r = clone(ctx.recipe()); r.output = { format: "pdf", options: r.output.format === "pdf" ? r.output.options : {} }; return r; };
     async function refresh() {
-      if (!state.upload) { facts.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first. The PDF is made from the current pipeline." })); preview.hidden = true; return; }
+      if (!ctx.hasInput()) { facts.replaceChildren(el("p", { className: "muted", textContent: "Open an image in the Playground first. The PDF is made from the current pipeline." })); preview.hidden = true; return; }
       const mine = ++rev;
       try {
-        const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: pdfRecipe(), viewable: true }) });
+        const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: ctx.uploadId(), recipe: pdfRecipe(), viewable: true }) });
         if (!res.ok) throw await apiError(res);
         const blob = await res.blob(); if (mine !== rev) return;
         if (url) URL.revokeObjectURL(url);
@@ -87,10 +87,10 @@ export function initExport(container, ctx) {
     }
     const download = el("button", { type: "button", className: "btn primary", textContent: "Download PDF" });
     download.onclick = async () => {
-      if (!state.upload) return;
-      const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: state.upload.uploadId, recipe: pdfRecipe(), assets: state.assets }) });
+      if (!ctx.hasInput()) return;
+      const res = await fetch("/api/render", { method: "POST", body: JSON.stringify({ uploadId: ctx.uploadId(), recipe: pdfRecipe(), assets: state.assets }) });
       if (!res.ok) { facts.replaceChildren(el("p", { className: "status error", textContent: (await apiError(res)).message })); return; }
-      const a = el("a", { href: URL.createObjectURL(await res.blob()), download: `${(state.upload.name || "image").replace(/\.[^.]+$/, "")}.pdf` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      const a = el("a", { href: URL.createObjectURL(await res.blob()), download: `${(ctx.baseName()).replace(/\.[^.]+$/, "")}.pdf` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
     cards.push({ refreshRaster() { drawForm(); refresh(); } });
     grid.append(el("section", { className: "lab-card" }, el("h2", { textContent: "Raster PDF report" }),
@@ -163,7 +163,7 @@ export function initExport(container, ctx) {
         ...(s.params.some((p) => p.advanced) ? [el("details", { className: "adv" }, el("summary", { textContent: "Advanced" }), ...s.params.filter((p) => p.advanced).map(bind))] : []));
     }
 
-    function body(extra = {}) { return JSON.stringify({ uploadId: state.upload?.uploadId ?? null, document: doc, ...extra }); }
+    function body(extra = {}) { return JSON.stringify({ uploadId: ctx.uploadId(), document: doc, ...extra }); }
     function schedulePreview() { clearTimeout(timer); timer = setTimeout(preview, 250); }
     async function preview() {
       const mine = ++rev;
