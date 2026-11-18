@@ -2,15 +2,16 @@
 
 Runnable demos for [Hokusai](https://github.com/ivantokar/hokusai), a Swift library for server-side image processing built on libvips. Open an image, build an ordered pipeline, see the result, and copy the Swift that reproduces it. Documentation: <https://ivantokar.com/oss/hokusai/>; a step-by-step guide to running, testing and adopting these demos is at <https://ivantokar.com/oss/hokusai/integrations/examples/>.
 
-| What | Where | Status |
-| --- | --- | --- |
-| Web playground served by a **Vapor** backend ([Hokusai Vapor](https://github.com/ivantokar/hokusai-vapor)) | [`vapor-server/`](vapor-server) | works |
-| The same playground served by a **Hummingbird** backend ([Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird)) | [`hummingbird-server/`](hummingbird-server) | works |
-| Shared recipes, operation catalog, Swift code generator, bounded upload store | [`recipes/`](recipes) | works |
-| Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) | works |
-| Inspect view: metadata verified on exported bytes, raw pixels in and out, pages and animation frames | web | works |
-| Runtime Lab (streaming, cancel, queue limits, failure examples) | web | works |
-| Export / PDF view (encoder comparison, raster PDF report, HokusaiPDF document builder) | web | works |
+| What | Where |
+| --- | --- |
+| Web playground served by a **Vapor** backend ([Hokusai Vapor](https://github.com/ivantokar/hokusai-vapor)) | [`vapor-server/`](vapor-server) |
+| The same playground served by a **Hummingbird** backend ([Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird)) | [`hummingbird-server/`](hummingbird-server) |
+| Shared recipes, operation catalog, Swift code generator, bounded upload store | [`recipes/`](recipes) |
+| Native macOS playground (SwiftUI, offline, no server) | [`macos/`](macos) |
+
+The web playground has an Inspect view (metadata verified on exported bytes, raw pixels in and out, pages and animation frames), a Runtime Lab (streaming, cancel, queue limits, failure examples) and an Export / PDF view (encoder comparison, raster PDF report, HokusaiPDF document builder). What each demo shows, and what it does not yet, is in the [capability coverage](#capability-coverage).
+
+**Contents:** [Try it](#try-it) · [How it is built](#how-it-is-built) · [HTTP API](#http-api) · [Capability coverage](#capability-coverage) · [Checks](#checks) · [Testing unreleased library changes](#testing-unreleased-library-changes) · [Known limitations](#known-limitations) · [Related](#related)
 
 Both backends serve **one** web UI and answer the **same** HTTP API, so you can compare how each integration behaves. The active backend is shown in the top bar.
 
@@ -132,10 +133,13 @@ Never commit an edited checkout.
 - The playground previews at 1280 px; there is no downsampled-input fast path yet, because it is not equivalent for blur, trim, text and geometry steps.
 - Multi-architecture images are not claimed: build and test on the architecture you run.
 - Fonts: the Docker image bundles DejaVu (free licence) for text; native runs use your system fonts.
-- Vector PDF cancellation, memory and blocking-I/O limits are tracked in the Hokusai repository (#158 to #160) and will be shown, not hidden, when the PDF view lands.
+- Vector PDF: rasters are held in memory until the document is written and file I/O blocks the calling task (open issues [#159](https://github.com/ivantokar/hokusai/issues/159) and [#160](https://github.com/ivantokar/hokusai/issues/160) in the Hokusai repository).
 
 ## Related
 
-[Hokusai](https://github.com/ivantokar/hokusai) · [Hokusai Vapor](https://github.com/ivantokar/hokusai-vapor) · [Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird) · [Documentation](https://ivantokar.com/oss/hokusai/) · the archived [Vapor example](https://github.com/ivantokar/hokusai-vapor-example) is reference material only.
+- [Hokusai](https://github.com/ivantokar/hokusai): the core library
+- [Hokusai Vapor](https://github.com/ivantokar/hokusai-vapor) and [Hokusai Hummingbird](https://github.com/ivantokar/hokusai-hummingbird): the adapters these servers use
+- [Documentation](https://ivantokar.com/oss/hokusai/), including the [guide to these examples](https://ivantokar.com/oss/hokusai/integrations/examples/), the [macOS playground](https://ivantokar.com/oss/hokusai/integrations/macos/) and [Docker](https://ivantokar.com/oss/hokusai/integrations/docker/) pages
+- The archived [Vapor example](https://github.com/ivantokar/hokusai-vapor-example) is reference material only.
 
 MIT licensed, see [LICENSE](LICENSE). Sample images in `fixtures/` are generated for this project.
