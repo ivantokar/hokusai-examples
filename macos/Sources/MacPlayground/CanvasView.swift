@@ -11,16 +11,26 @@ struct CanvasView: View {
         ZStack {
             Checkerboard()
             if let image = displayed {
-                ScrollView([.horizontal, .vertical]) {
+                let label = showOriginal ? "Original image" : "Result of the current pipeline"
+                if actualSize {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: CGFloat(logicalWidth(image)), height: CGFloat(logicalHeight(image)))
+                            .shadow(radius: 6)
+                            .padding(16)
+                            .accessibilityLabel(label)
+                    }
+                } else {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: actualSize ? CGFloat(logicalWidth(image)) : nil, height: actualSize ? CGFloat(logicalHeight(image)) : nil)
                         .shadow(radius: 6)
                         .padding(16)
-                        .frame(maxWidth: actualSize ? nil : .infinity, maxHeight: actualSize ? nil : .infinity)
-                        .accessibilityLabel(showOriginal ? "Original image" : "Result of the current pipeline")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityLabel(label)
                 }
             } else {
                 ContentUnavailableView("Open an image", systemImage: "photo.on.rectangle.angled",
