@@ -67,6 +67,12 @@ jobs:
         run: brew install vips cairo pango pkg-config
       - name: Versions
         run: swift --version && pkg-config --modversion vips cairo
+      - name: pkg-config diagnostics
+        run: |
+          which -a pkg-config; pkg-config --version; brew list --versions vips pkgconf
+          pkg-config --cflags --libs vips; echo "exit=$?"
+          pkg-config --cflags cairo; echo "exit=$?"
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"; ls /opt/homebrew/opt/vips/include/vips/vips.h
       - name: Recipes package tests
         run: swift test --package-path recipes
       - name: macOS app model tests and build
