@@ -83,6 +83,17 @@ struct ParamControl: View {
 
     private var current: ParamValue { value ?? spec.default }
 
+    /// A stepped slider makes AppKit build one tick mark per step, so a wide range with a fine step
+    /// (up to millions of ticks) freezes the window. Only step when the tick count stays small.
+    @ViewBuilder private func slider(lo: Double, hi: Double) -> some View {
+        let step = spec.step ?? (spec.kind == .integer ? 1 : 0.01)
+        if (hi - lo) / step <= 500 {
+            Slider(value: numberBinding, in: lo...hi, step: step) { Text(spec.label) }.labelsHidden()
+        } else {
+            Slider(value: numberBinding, in: lo...hi) { Text(spec.label) }.labelsHidden()
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             switch spec.kind {
@@ -90,7 +101,7 @@ struct ParamControl: View {
                 HStack { Text(spec.label).fontWeight(.medium); Spacer(); if let unit = spec.unit { Text(unit).foregroundStyle(.secondary) } }
                 HStack {
                     if let lo = spec.min, let hi = spec.max, hi - lo <= 100_000 {
-                        Slider(value: numberBinding, in: lo...hi, step: spec.step ?? (spec.kind == .integer ? 1 : 0.01)) { Text(spec.label) }.labelsHidden()
+                        slider(lo: lo, hi: hi)
                     }
                     TextField(spec.label, value: numberBinding, format: .number.precision(.fractionLength(0...3)))
                         .textFieldStyle(.roundedBorder).frame(width: 78).multilineTextAlignment(.trailing)
