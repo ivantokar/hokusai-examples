@@ -22,7 +22,7 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 CanvasView(showOriginal: showOriginal, actualSize: actualSize)
                 StatusBar(message: message)
-                if showCode { CodePanel().frame(height: 190) }
+                if showCode { CodePanel().frame(height: 250) }
             }
             .inspector(isPresented: $showInspector) {
                 InspectorView().inspectorColumnWidth(min: 260, ideal: 300, max: 380)
