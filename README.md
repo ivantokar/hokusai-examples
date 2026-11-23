@@ -40,7 +40,7 @@ Needs Swift 6.2+ (the Docker image builds with 6.2; macOS CI uses 6.4) and libvi
 
 A native SwiftUI app that runs Hokusai locally through the public API: offline, no Docker, no server.
 
-![The macOS playground: a pipeline with Smart crop in the sidebar, the result on a checkerboard canvas, the inspector on the right and the generated Swift below](docs/macos-playground.jpg)
+![The macOS playground: a pipeline with Smart crop in the sidebar, the result on a checkerboard canvas, the inspector on the right and the generated Swift below](docs/macos-playground.png)
 
 ```sh
 brew install vips cairo pango pkg-config

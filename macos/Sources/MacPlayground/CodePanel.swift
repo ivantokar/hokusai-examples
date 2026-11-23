@@ -24,7 +24,7 @@ struct CodePanel: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             ScrollView([.horizontal, .vertical]) {
-                Text(code).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                Text(SwiftHighlighter.attributed(code)).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
             .background(Color(nsColor: .textBackgroundColor))
